@@ -1,0 +1,17 @@
+Sub Sub_Extraction_Process
+	Call Sub_InitETL
+	Call Sub_ExtractionEngine
+	Call Sub_Load_LastUpdateLog
+	Call Sub_Reset_Variables
+End Sub
+
+Sub Sub_Auditing_Process
+	Call Sub_MonitoringLog
+	Call Sub_MonitoringLogSummary
+	Call Sub_ScriptLog
+	Call Fz_Store_Historical_Table('TraceLog')
+		
+	Call Fz_Trace('SCRIPT END')
+
+
+End Sub

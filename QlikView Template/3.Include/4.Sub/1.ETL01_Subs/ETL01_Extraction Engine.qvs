@@ -1,0 +1,986 @@
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Engine to extract the tables from the Setups in Settings.xls
+	
+	Syntax:
+	Called by the script: Call Sub_ExtractionEngine
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+
+Sub Sub_ExtractionEngine
+	unqualify "ETL_*";
+
+	//Load of the connection strings from Settings.xls
+	ETL_Connections:
+	Load
+		 [Source ID] 				as [Source ID]
+		,[Source Type] 				as [Source Type]
+		,[DB Type]					as [DB Type]											// <<<---------- 30/10/2014 inserito da Mgt												
+		,[Connection String] 			as [Connection String]
+		,[SubPath - Store Staging] 	as [SubPath - Store Staging]
+		,[SubPath - External Source] 	as [SubPath - External Source]
+		,[Enable] 					as [ToLoad]
+	From
+		$(vL.Path_Settings)$(vL.ETLName)_Settings.XLS
+		(biff, embedded labels, table is [Connections Setup$])
+	Where
+		Upper([Enable])='Y';
+
+	//Number of connection strings to manage the for loop (For vL.Connection_i)
+	Let	vL.NoConnections	=	NoOfRows('ETL_Connections');
+
+	Call Fz_Trace ('N° of connections: $(vL.NoConnections)')
+
+	//connections load cycle - For each connection, run the extraction routines
+	For vL.Connection_i = 0 to $(vL.NoConnections)-1
+						
+		Let	vL.Connection_String	=	Peek('Connection String',			$(vL.Connection_i),'ETL_Connections');
+		Let	vL.Connection_Source	=	Peek('Source ID',					$(vL.Connection_i),'ETL_Connections');
+		Let	vL.Connection_Type		=	Upper(Peek('Source Type',			$(vL.Connection_i),'ETL_Connections'));
+		let vL.DB_Type				=	Upper(Peek('DB Type',				$(vL.Connection_i),'ETL_Connections'));						// <<<---------- 30/10/2014 inserito da Mgt	
+		Let	vL.SubPathQVD			=	Peek('SubPath - Store Staging',		$(vL.Connection_i),'ETL_Connections');
+		Let	vL.SubPathExtDB			=	Peek('SubPath - External Source',	$(vL.Connection_i),'ETL_Connections');
+	 	
+	 					
+		//Start the connection in the case of relational DB (for external sources vL.Connection_String is null)
+		$(vL.Connection_String);
+		Call Fz_Trace ('Connection: $(vL.Connection_Source)')	
+
+		//Load the list of tables to be extracted
+		ETL_Tables_To_Extract:
+		Load
+			 [Source ID]							as [Source ID]
+			,[Table Name]							as [Table Name]
+			,[QVD Name]								as [QVD Name]	
+			,[Extraction Mode]						as [Extraction Mode]
+			,[To Segment]							as [To Segment]
+			,[Store Partial]						as [Store Partial]
+			,[Segment Type]							as [Segment Type]	
+			,[Segment Field]						as [Segment Field]
+			,[Segment From]							as [Segment From]	
+			,[Segment To]							as [Segment To]
+			,[Description]							as [Description]
+			,[Where]								as [Where]
+			,[Where on SELECT / LOAD]				as [Where on SELECT / LOAD]
+			,[Where Clause]							as [Where Clause]
+			,[Import Configuration - External Sources]			as [Import Configuration - External Sources]
+			,[Incremental Load - Date Field]					as [Incremental Load - Date Field]	
+			,[Incremental Load - Counter Filed]					as [Incremental Load - Counter Filed]
+			,[Incremental Load - Update - Table Primary Key]	as [Incremental Load - Update - Table Primary Key]
+			,[Incremental Load - Delete - Table Primary Key]	as [Incremental Load - Delete - Table Primary Key]
+		From
+			$(vL.Path_Settings)$(vL.ETLName)_Settings.XLS
+			(biff, embedded labels, table is [Tables Setup$])
+		Where
+			WildMatch(trim(upper([Extraction Mode])), 'FULL', 'INCR')
+		and
+			[Source ID] = '$(vL.Connection_Source)';
+
+		//Number of tables to manage the for loop (For vL.Table_i)		
+		Let	vL.NoOfTablesToExtract	=	NoOfRows('ETL_Tables_To_Extract');
+
+		//Tables reading cycle
+		For vL.Table_i = 0 to $(vL.NoOfTablesToExtract)-1	
+	
+			Let	vL.Source					=	Peek('Source ID',						$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let	vL.PhysicalTableName		=	Peek('Table Name',						$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let	vL.Table					=	Peek('QVD Name',						$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let	vL.ExtractionMode			=	Trim(Upper(Peek('Extraction Mode',		$(vL.Table_i),'ETL_Tables_To_Extract')));
+			Let	vL.Segment					=	Upper(Peek('To Segment',				$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Store_Partial			=	Upper(Peek('Store Partial',				$(vL.Table_i),'ETL_Tables_To_Extract'));			
+			Let	vL.Segment_Type 			=	Upper(Peek('Segment Type',				$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Segment_Year_From		=	Text(Peek('Segment From',				$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Segment_Year_To			=	Text(Peek('Segment To',					$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Segment_Year_Field		=	Text(Peek('Segment Field',				$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.With_Where				=	Upper(Peek('Where',						$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Where_Select_or_Load		=	Upper(Peek('Where on SELECT / LOAD',	$(vL.Table_i),'ETL_Tables_To_Extract'));
+			Let	vL.Where_Condition			=	Peek('Where Clause',			$(vL.Table_i),'ETL_Tables_To_Extract'); 	//§ character used to handle single quotes
+			Let	vL.Name						=	Peek('Description',										$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let	vL.Import_Configuration		=	Peek('Import Configuration - External Sources',			$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let vL.LastUpdateDateField		=	Peek('Incremental Load - Date Field',					$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let vL.LastCountField			=	Peek('Incremental Load - Counter Filed',				$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let vL.TablePrimaryKey_Update	=	Peek('Incremental Load - Update - Table Primary Key',	$(vL.Table_i),'ETL_Tables_To_Extract');
+			Let vL.TablePrimaryKey_Delete	=	Peek('Incremental Load - Delete - Table Primary Key',	$(vL.Table_i),'ETL_Tables_To_Extract');
+		
+			Call Fz_Trace ('Starting Table: $(vL.PhysicalTableName) >> $(vL.Table)')
+			
+			//Variables Reset
+			set vL.PrecedingLoad = 'N';
+			set vL.NoOfWhere_L = 0;
+			set vL.NoOfWhere_PL = 0;
+			
+			Call Sub_Incremental			//Handle the Incremental Load
+			Call Sub_Segmentation_Init		//Handle the Segmentation process
+			
+				if('$(vL.Segment)'='Y')	Then
+				$(vL.Table)_Period_Extracted:
+						NoConcatenate	load null() as Period AutoGenerate(0);
+				end if 
+			
+			
+			//Cycle for handling the tale segmentation (if the table is not to be segmented, the cycle turns once) - vL.Segemnt_NumOfPeriods defined by routine Storicizzazione_Init
+			For vL.Segment_Period_i = 0 to $(vL.Segemnt_NumOfPeriods)
+			
+				Trace --> '$(vL.Filter_INCR)';											
+				if '$(vL.ExtractionMode)' = 'INCR' and '$(vL.Segment_Period_i)' > 0 Then								
+					// Only for incremental load and in case of segmentation when the cicle is > 0
+					
+					Call Fz_Add_Where('$(vL.Filter_INCR)', 'SELECT')	//--	EMK
+					
+				End If																	
+								
+				Call Sub_Segmentation_Where													//Add Where Condition to handle the segmentation
+				Call Fz_Add_Where('$(vL.Where_Condition)', '$(vL.Where_Select_or_Load)')	//Where Conditions handling - configured in Settings.xls
+				Call Sub_Aliasing															//Alias handling
+				Call Sub_Code_Generator														//Process to define the extraction code
+				
+				if('$(vL.Segment)'='Y')	Then
+					Concatenate ($(vL.Table)_Period_Extracted)	load '$(vL.Segment_NumOfYearTo)' as Period AutoGenerate(1);					
+				end if
+				
+				Call Sub_Coe_Execution														//Extraction code execution
+				Call Fz_StoreTable('$(vL.Table)')											//Store/Drop
+				
+				 
+				
+						
+			next vL.Segment_Period_i
+			
+			if('$(vL.Segment)'='Y')	Then
+			
+				Store $(vL.Table)_Period_Extracted into $(vL.Path_Settings)$(vL.Table)_Period_Extracted.qvd (qvd);				
+				drop table $(vL.Table)_Period_Extracted;
+				end if
+
+		next vL.Table_i									//Next Table
+			Drop Table ETL_Tables_To_Extract;
+	next vL.Connection_i								//Next Connection
+	Drop Table ETL_Connections;
+	
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Where conditions handling: Allow to add a where condition in LOAD/SELECT (SELECT) or in PRECEDING LOAD (LOAD)
+	Used to handle where conditions by settings, segmentation and incremental processes
+
+	Syntax:
+	Called by the extraction cycle : Call Fz_Add_Where('Condition', 'SELECT/LOAD')
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_Add_Where(pL.Where, pL.WhereType)
+
+	LET  pL.Where= replace('$(pL.Where)','##',chr(39));
+
+	//Check if there is a non blank where condition (pL.Where)
+	if '$(pL.Where)' <> ''then
+		Call Fz_Trace ('Where added: $(pL.Where)')
+		
+		//Check if the where is Load or Preceding load type (pL.WhereType)
+		//Depending on the type, the condition is stored in a table subsequently groupped by a 'group by concat' in the routine Generazione_Codice
+		if '$(pL.WhereType)' = 'LOAD' then
+			ETL_Where_Condition_PL:
+			Load
+				'$(pL.Where)'	as ETL_Where_Condition
+			Autogenerate(1);
+			
+		elseif '$(pL.WhereType)' = 'SELECT' then
+			ETL_Where_Condition_L:
+			Load
+				'$(pL.Where)'			as ETL_Where_Condition
+			Autogenerate(1);
+		end if
+	end if
+	
+	//Count the number of Where in the Load / Preceding Load (used to check whether you need to apply a where - routine Generazione_Codice)
+	let vL.NoOfWhere_L 		=	NoOfRows('ETL_Where_Condition_L');
+	let vL.NoOfWhere_PL 	=	NoOfRows('ETL_Where_Condition_PL');
+
+	Let	pL.Where		=	Null();
+	Let	pL.WhereType	=	Null();
+	
+End Sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Incremental Handling
+	
+	Syntax:
+	Called by the extraction cycle : Call Sub_Incremental()
++---------------------------------------------------------------------------------------------------------------------------------------+*/		
+Sub Sub_Incremental	
+
+		//Reset variables used by the incremental process
+		Let vL.Filter_Field_INCR	= '';
+		Let vL.Filter_INCR			= '';
+		Let vL.IncrType				= '';
+
+		//FM001C Reset just in case there is no yearly segmentation
+		if ('$(vL.Segment)' = 'Y') then		
+			set vL.Underscore = '_';
+		else
+			set vL.Underscore = '';
+		end if
+
+		
+		ETL_ExistHistory:
+		NoConcatenate
+		Load ETL_LogLU_TableName Inline [ETL_LogLU_TableName];
+		
+		For Each vL.ExistQvd in FileList('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.QVD')
+		
+			Concatenate(ETL_ExistHistory)
+			Load * From [$(vL.ExistQvd)](qvd) Where ETL_LogLU_TableName = '$(vL.Table)';
+			//and Trim(ETL_LogLU_FieldName)<>'';	//--	EMK
+			
+		Next	vL.ExistQvd
+		
+		Let	vL.ExistHistory	=	NoOfRows('ETL_ExistHistory');
+		
+		If('$(vL.ExistHistory)'>0)	Then
+			Set	vL.ExtractionMode = 'INCR';
+		Else
+			Set	vL.ExtractionMode = 'FULL';
+			Call Fz_Trace('WARNING: File $(vL.ETLName)_LastUpdateLog.qvd not found: the extraction will be FULL')
+		EndIf
+		
+		Drop Tables	ETL_ExistHistory;
+		Let	vL.ExistQvd		=	Null();
+		Let	vL.ExistHistory	=	Null();
+		
+		//Variables used by the incremental process
+		if '$(vL.LastUpdateDateField)' <> '' and '$(vL.ExtractionMode)'='INCR' then
+			Let vL.IncrType				= 'Data';
+			Let vL.Filter_Field_INCR 		= '$(vL.LastUpdateDateField)';
+		elseif '$(vL.LastCountField)' <> '' and '$(vL.ExtractionMode)'='INCR' then
+			Let vL.IncrType				= 'Counter';
+			Let vL.Filter_Field_INCR 		= '$(vL.LastCountField)';
+		end if
+		
+		//-- Mgt 30/10/2014 --  Calculate Year of Current date for Segmentation & Incremental process ..								// <<<--------------------- Senza questa istruzione la variabile vL.Segment_NumOfYearTo non è valorizzata -----------------------------
+		//                      If exist segmented Qvd wit current Year (*_YYYY.qvd) , continue the incremental process, else the process switch to FULL ...
+		//if '$(vL.Segment)' = 'Y' then
+		//	Let vL.Segment_NumOfYearTo = Year(Today());
+		//else
+		//	Let vL.Segment_NumOfYearTo = '';
+		//end if
+					
+		//If in INCR mode and a Date or Counter field is setted
+		//Then load LastUpdateLog.qvd (Last stored Date/Counter)
+		if '$(vL.IncrType)' <> '' then //and not isnull(filetime('$(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(vL.Table)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd')) then
+			
+			ETL_IncrementalCounter:
+			LOAD 
+			 	 ETL_LogLU_TableName
+				,ETL_LogLU_LastUpdateDate
+				,ETL_LogLU_LastCountNum
+			FROM $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd (qvd)
+			where ETL_LogLU_TableName = '$(vL.Table)';
+		
+	
+			let vL.NoOfRows_ETL_IncrementalCounter = NoOfRows('ETL_IncrementalCounter');
+		
+			//If there are not counter associated with the table then the extraction is FULL
+			if '$(vL.NoOfRows_ETL_IncrementalCounter)' = 0 then
+				set vL.TableLoadingType = 'FULL';
+				Call Fz_Trace('WARNING: File $(vL.ETLName)_LastUpdateLog.qvd does not contain the table $(vL.Table): the extraction will be FULL');
+				Drop Table ETL_IncrementalCounter;
+				exit sub;
+			end if
+			
+			set vL.TableLoadingType 	= 	'INCR';
+			Let vL.LastUpdateDate		=	Peek('ETL_LogLU_LastUpdateDate', 0,'ETL_IncrementalCounter');
+			Let vL.LastCountNum			=	Peek('ETL_LogLU_LastCountNum',	 0,'ETL_IncrementalCounter');
+
+			
+			Drop Table ETL_IncrementalCounter;
+
+
+			if('$(vL.LastUpdateDate)'<>'') then
+
+				//Let vL.LastUpdateDateSQL = Year($(vL.LastUpdateDate)) & Num(Month($(vL.LastUpdateDate)),'00') & Num(Day($(vL.LastUpdateDate)),'00');	//--	EMK
+				Let vL.LastUpdateDateSQL = $(vL.LastUpdateDate);	// FRC 06/10/2015
+				Let vL.LastUpdateDateSQL_MS = date(num($(vL.LastUpdateDate)),'DD/MM/YYYY');	// Massimo 04/05/2016
+
+					if 	   '$(vL.DB_Type)' = 'ACC' then
+						Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= $(vL.LastUpdateDate)';
+					elseif '$(vL.DB_Type)' = 'SS'  then
+						//Let vL.Filter_INCR		= '$(vL.Filter_Field_INCR) >= CONVERT(DATE,&#39;$(vL.LastUpdateDateSQL)&#39;,112)';	//--	EMK
+						Let vL.Filter_INCR		= '$(vL.Filter_Field_INCR) >=' & Date($(vL.LastUpdateDate),'YYYY-MM-DD')&'T00:00:00Z';  //FRC 05/10/2015
+					elseif '$(vL.DB_Type)' = 'ORA' then
+						Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= TO_DATE(&#39;$(vL.LastUpdateDateSQL)&#39;,&#39;YYYYMMDD&#39;)';	//--	EMK
+					elseif '$(vL.DB_Type)' = 'DB2' then
+						Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= ''$(vL.LastUpdateDateSQL_MS)'''; // Massimo 04/05/2016
+					elseif '$(vL.DB_Type)' = 'AS400' then
+						Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= $(vL.LastUpdateDate)';
+					end if
+					
+					//Trace $(vL.Filter_INCR);					// for debug	
+
+			else
+				if ('$(vL.LastCountNum)'<>'') then
+					Let vL.Filter_INCR = '$(vL.Filter_Field_INCR) > $(vL.LastCountNum)';
+				end if
+			end if	
+			
+			
+			//Where in SELECT to handle the incremental extraction
+		    Call Fz_Add_Where('$(vL.Filter_INCR)', 'SELECT')	//--	EMK
+		else 
+			//If not INCR mode or there are no Date/Counter field setted
+			set vL.TableLoadingType = 'FULL';
+		end if
+		
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Segmentation
+
+	Syntax:
+	Called by the extraction cycle : Call Sub_Segmentation_Init()
+	Called by the extraction cycle : Call Sub_Segmentation_Where()
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Segmentation_Init
+	//Check if the table need to be segmented
+	if('$(vL.Segment)'='Y')	Then
+	//The table need to be segmented > Populate the variables to handle the segmentation cycle (For vL.Segment_Period_i)
+		if ('$(vL.Segment_Type)'='YEARLY') then
+			Let	vL.Segemnt_NumOfPeriods		=	$(vL.Segment_Year_To)-$(vL.Segment_Year_From);
+		elseif ('$(vL.Segment_Type)'='MONTHLY') then
+		trace da $(vL.Segment_Year_From) a $(vL.Segment_Year_To);			
+			Let	vL.Segemnt_NumOfPeriods		=	((YEAR($(vL.Segment_Year_To))-YEAR($(vL.Segment_Year_From)))*12)+ MONTH($(vL.Segment_Year_To)) - MONTH($(vL.Segment_Year_From));	
+		end if
+		
+		Let	vL.Segment_FieldYear			=	'$(vL.Segment_Year_Field)';
+				
+	Call Fz_Trace('FREEZE $(vL.Segment_Type): $(vL.Table) - Freeze into $(vL.Segemnt_NumOfPeriods) periods')
+	
+	else 
+		//The table doesn't need to be segmented > Variables Reset
+		Set	vL.Segemnt_NumOfPeriods		=	0;
+		Set vL.Segment_FieldYear		=	0;
+
+
+		Set vL.Segment_NumOfYearTo		=	'';
+	end if
+				
+End Sub
+
+
+Sub Sub_Segmentation_Where
+	//Check if the table need to be segmented
+	if('$(vL.Segment)'='Y')	Then
+
+		//Yearly Segmentation
+		if('$(vL.Segment_Type)'='YEARLY')	Then
+			//Calculate the Year and add the Where(Fz_Add_Where)
+			Let	vL.Segment_NumOfYearTo	=	$(vL.Segment_Year_From) + $(vL.Segment_Period_i);
+			Let vL.StartOfTheYear 		= 	date#('01/01/$(vL.Segment_NumOfYearTo)','DD/MM/YYYY');
+			Let vL.EndOfTheYear 		= 	date#('31/12/$(vL.Segment_NumOfYearTo)','DD/MM/YYYY');
+			
+			//AD 27.05.2015 START 
+			//check about the dbtype to build up the correct sintax for the segmentation 
+			
+			if 	   '$(vL.DB_Type)' = 'ACC' then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) = $(vL.Segment_NumOfYearTo)', 'SELECT');
+			elseif '$(vL.DB_Type)' = 'SS'  then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) = $(vL.Segment_NumOfYearTo)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'ORA' then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) between to_date(&#39;$(vL.StartOfTheYear)&#39;, &#39;DD/MM/YYYY&#39;) and to_date(&#39;$(vL.EndOfTheYear)&#39;, &#39;DD/MM/YYYY&#39;)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'DB2'  then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) = $(vL.Segment_NumOfYearTo)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'AS400'  then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) = $(vL.Segment_NumOfYearTo)', 'SELECT')
+			end if	
+			
+		//Montly Segmentation
+		elseif ('$(vL.Segment_Type)'='MONTHLY') then
+			//Calculate the YearMonth and add the Where(Fz_Add_Where)
+			Let	vL.Segment_MinPeriod	=	(date(monthstart(AddMonths($(vL.Segment_Year_From), '$(vL.Segment_Period_i)'))));
+			Let	vL.Segment_MaxPeriod	=	(date(monthend(AddMonths($(vL.Segment_Year_From), '$(vL.Segment_Period_i)'))));
+
+			//chceck about the dbtype to build up the correct sintax for the segmentation 
+			
+			if 	   '$(vL.DB_Type)' = 'ACC' then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) >= $(vL.Segment_MinPeriod) and $(vL.Segment_FieldYear) <= $(vL.Segment_MaxPeriod)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'SS'  then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) >= $(vL.Segment_MinPeriod) and $(vL.Segment_FieldYear) <= $(vL.Segment_MaxPeriod)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'ORA' then	
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) between to_date(&#39;$(vL.Segment_MinPeriod)&#39;, &#39;DD/MM/YYYY&#39;) and to_date(&#39;$(vL.Segment_MaxPeriod)&#39;, &#39;DD/MM/YYYY&#39;)', 'SELECT')
+			elseif '$(vL.DB_Type)' = 'DB2'  then
+		//?????		Call Fz_Add_Where('$(vL.Segment_FieldYear) >= ''$(vL.Segment_MinPeriod)'' and $(vL.Segment_FieldYear) <= ''$(vL.Segment_MaxPeriod)''', 'SELECT')
+		                Call Fz_Add_Where('$(vL.Segment_FieldYear) >= to_date(''$(vL.Segment_MinPeriod)'', ''DD/MM/YYYY'') and $(vL.Segment_FieldYear) <= to_date(''$(vL.Segment_MaxPeriod)'', ''DD/MM/YYYY'')', 'SELECT')
+		//                Call Fz_Add_Where('$(vL.Segment_FieldYear) >= ''$(vL.Segment_MinPeriod)'' and $(vL.Segment_FieldYear) <= ''2016-03-10''', 'SELECT')
+				
+	elseif '$(vL.DB_Type)' = 'AS400'  then
+				Call Fz_Add_Where('$(vL.Segment_FieldYear) >= $(vL.Segment_MinPeriod) and $(vL.Segment_FieldYear) <= $(vL.Segment_MaxPeriod)', 'SELECT')
+			end if
+			
+			Let vL.Year= year('$(vL.Segment_MaxPeriod)');
+			
+			Let	vL.Segment_NumOfYearTo = year('$(vL.Segment_MaxPeriod)') & '_' & num(month('$(vL.Segment_MaxPeriod)'),'00'); //set the QVD name as YYYYMM			
+		end if
+		
+	end if
+				
+End Sub
+
+
+
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Aliasing and Field handling :sheet Fields Setup in Settings.xls
+
+	Syntax:
+	Called by the extraction cycle : Call Sub_Aliasing()
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Aliasing
+	//For each table check if alias need to be applied (Sheet Fields Setup) to dynamically build the SQL query with aliasing
+	
+	//LOAD handling
+	ListaCampi_L:
+	Noconcatenate
+	Load 
+		if(Len(Trim(Alias)) <> 0, (Field & ' as ' & Alias), Field) 	as Campo_Alias 	//Apply the alias if needed
+		,[Alias] 	as [Alias]
+		,[Field] 	as [Field]
+		,[To Preceding Load] 	as [To Preceding Load]
+	From
+		$(vL.Path_Settings)$(vL.ETLName)_Settings.XLS
+		(biff, embedded labels, table is [Fields Setup$])
+	Where
+		[QVD Name] = '$(vL.Table)'
+	and
+		Upper([To Read])= 'Y';
+
+	Let	vL.NoOfQueryFields_L	=	NoOfRows('ListaCampi_L');
+								
+	//If the query (vL.NoOfQueryFields_L) give > 0 record then alias or partial field loading is needed
+	if('$(vL.NoOfQueryFields_L)' > 0) Then
+		
+		let vL.Separator = ',' & Chr(10);
+		
+		ListaCampi_GRP_L:
+		LOAD
+			Concat(distinct Campo_Alias, '$(vL.Separator)')		as Campi_To_Load
+		resident ListaCampi_L
+		Group by;	
+		
+		Let vL.Fields_ToLoad_L = Peek('Campi_To_Load', NoOfRows('ListaCampi_GRP_L')-1, 'ListaCampi_GRP_L');
+		drop table ListaCampi_GRP_L;													
+	else 
+		Set vL.Fields_ToLoad_L = '*';													
+	end if
+
+	//PRECEDING LOAD Handling
+	ListaCampi_PL:
+	Noconcatenate
+	Load 
+		if(Len(Trim([Alias - Preceding Load])) <> 0, ([Field / Function - Preceding Load] & ' as ' & [Alias - Preceding Load]), Field) 	as Funzione_AliasPrecLoad 	//Apply the alias if needed
+	From
+		$(vL.Path_Settings)$(vL.ETLName)_Settings.XLS
+		(biff, embedded labels, table is [Fields Setup$])
+	Where
+		[QVD Name] = '$(vL.Table)'
+	and
+		Upper([To Preceding Load])= 'Y';
+	
+	//Concatenate the fields "To Read" and the previously aliased
+	concatenate load if(Len(Trim(Alias)) <> 0, Alias, Field) as Funzione_AliasPrecLoad resident ListaCampi_L where upper([To Preceding Load])<>'Y';
+	drop table ListaCampi_L;
+
+	Let	vL.NoOfQueryFields_PL	=	NoOfRows('ListaCampi_PL');
+								
+	//If the query (vL.NoOfQueryFields_PL) give > 0 record then alias or partial field loading is needed in Preceding Load	
+	if('$(vL.NoOfQueryFields_PL)' > 0) Then
+		
+		let vL.Separator = ',' & Chr(10);
+		
+		ListaCampi_GRP_PL:
+		LOAD
+			Concat(distinct Funzione_AliasPrecLoad, '$(vL.Separator)')	as Campi_To_PrecedingLoad
+		resident ListaCampi_PL
+		Group by;	
+		
+		Let vL.Fields_ToLoad_PL = Peek('Campi_To_PrecedingLoad', NoOfRows('ListaCampi_GRP_PL')-1, 'ListaCampi_GRP_PL');	
+		set vL.PrecedingLoad = 'Y'; //Need to use the Preceding Load code in Sub_Code_Generator
+		drop table ListaCampi_GRP_PL;											
+	else 
+		
+		Set vL.Fields_ToLoad_PL = '*';				
+											
+	end if
+	drop table ListaCampi_PL;
+	
+End Sub
+
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Process to define the extraction code:
+	- Generate the code to handle Where
+	- Generate the code to handle the source type (DB, External, ODS)
+
+	Syntax:
+	Called by the extraction cycle : Call Sub_Code_Generator()
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Code_Generator
+	//Consolidate Where - Concat()
+	if '$(vL.NoOfWhere_L)'>0 then
+		ETL_Where_Condition_GRP_L:
+		Load 
+			Concat (ETL_Where_Condition, ' and ') 	as Where_Code
+		Resident ETL_Where_Condition_L
+		;
+
+		//To handle where in SAP DSO Connector > use a different syntax
+		If '$(vL.Connection_Type)'='ODS' Then		
+			let vL.WhereCode_L = Peek('Where_Code', NoOfRows('ETL_Where_Condition_GRP_L')-1, 'ETL_Where_Condition_GRP_L');
+			let vL.WhereCode_L = replace('$(vL.WhereCode_L)','=', 'I EQ');
+			let vL.WhereCode_L = replace('$(vL.WhereCode_L)','>=', 'I GE');
+			let vL.WhereCode_L = replace('$(vL.WhereCode_L)','<=', 'I LE');
+			let vL.WhereCode_L = replace('$(vL.WhereCode_L)','>', 'I GT');
+			let vL.WhereCode_L = replace('$(vL.WhereCode_L)','<', 'I LT');
+			let vL.WhereCode_L = 'Where ' & replace('$(vL.WhereCode_L)','§', chr(39));		//§ character used to handle single quotes
+		else
+		
+			Let vL.WhereCode_L ='WHERE ' & Peek('Where_Code',0, 'ETL_Where_Condition_GRP_L');//MapSubString('mapASCIItoChr',Peek('Where_Code',0, 'ETL_Where_Condition_GRP_L'));//COMMENTATO PERCHé NON FUNZIONA LELO 13/01/16
+
+		end if
+
+		trace Where condition: $(vL.WhereCode_L);
+		
+		Drop Tables ETL_Where_Condition_L;
+		Drop Tables	ETL_Where_Condition_GRP_L;
+
+	else
+		let vL.WhereCode_L =null();
+	end if
+
+	
+	//Consolidate Preceding load Where - Concat()
+	if '$(vL.NoOfWhere_PL)'>0 then
+		ETL_Where_Condition_GRP_PL:
+		load 
+			Concat (ETL_Where_Condition, ' and ') 	as Where_CodePL
+		Resident ETL_Where_Condition_PL
+		Group by
+		;
+		
+		//Generate code for Preceding Load Where - result of the groupby concat ETL_Where_Condition_GRP_PL
+		let vL.WhereCode_PL = 'Where ' & replace(Peek('Where_CodePL', NoOfRows('ETL_Where_Condition_GRP_PL')-1, 'ETL_Where_Condition_GRP_PL'),'§', chr(39));	//§ character used to handle single quotes
+		
+		drop tables ETL_Where_Condition_PL, ETL_Where_Condition_GRP_PL;
+		
+		set vL.PrecedingLoad = 'Y'; //Need to use the Preceding Load code in Sub_Code_Generator
+		
+	else 
+		let vL.WhereCode_PL = null();
+	end if
+	
+	/*+----------------------------------------------------------------------------------------------------------------------------------+*/
+
+	//A seconda del tipo di database aggiungo l'istruzione "with unlocked read" che ha il compito di non bloccare la tabella in lettura <--Inserito 03/02/2016
+	Set vL.SQLWithUR = '';
+	if 	   '$(vL.DB_Type)' = 'ACC' then
+		Set vL.SQLWithUR = '';
+	elseif '$(vL.DB_Type)' = 'SS'  then
+		Set vL.SQLWithUR = '';
+	//	Set vL.SQLWithUR = 'WITH (NOLOCK)';
+	elseif '$(vL.DB_Type)' = 'ORA' then	
+		Set vL.SQLWithUR = '';
+	elseif '$(vL.DB_Type)' = 'DB2'  then
+		Set vL.SQLWithUR = ' WITH UR';
+	elseif '$(vL.DB_Type)' = 'AS400'  then
+		Set vL.SQLWithUR = ' FOR FETCH ONLY';
+	end if
+	
+	//Depending on the type of connection required > set the code to run
+	if('$(vL.Connection_Type)' = 'DB' or '$(vL.Connection_Type)' = 'ODS')	Then			
+		Set	vL.SQLCode	=	'SQL SELECT';
+		Set	vL.SQLCodePL	=	'Load';
+		Set vL.FromCode	=	$(vL.PhysicalTableName);
+		
+	elseif('$(vL.Connection_Type)' = 'EXTERNAL') Then
+		Set	vL.SQLCode	=	'Load';
+		Set	vL.SQLCodePL	=	'Load';
+		Set vL.FromCode	=	$(vL.Path_ExternalData)$(vL.SubPathExtDB)$(vL.PhysicalTableName) $(vL.Import_Configuration);	 	//Path, file name, import configuration
+        //aggiunta per gestione recupero qvd da progetto COMMON -  massimo 16-5-2016
+	elseif('$(vL.Connection_Type)' = 'COMMON_QVD' or '$(vL.Connection_Type)' = 'QVX') Then
+		Set	vL.SQLCode	=	'Load';
+		Set	vL.SQLCodePL	=	'Load';
+		Set vL.FromCode	=	$(vL.SubPathExtDB)$(vL.PhysicalTableName) $(vL.Import_Configuration);	 	//Path, file name, import configuration
+	
+	end if
+
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Execution of the extraction code:
+
+	Syntax:
+	Called by the extraction cycle : Call Sub_Coe_Execution()
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Coe_Execution 
+	let vL.Table_i_1 = $(vL.Table_i)+1; //+ 1 to $(vL.Table_i) > used in the log
+
+	Call Fz_Trace ('TABLE EXTRACTION $(vL.Table_i_1)/$(vL.NoOfTablesToExtract) : $(vL.PhysicalTableName) --> $(vL.Table) - Mode $(vL.TableLoadingType)')
+	
+	//Check if the Preceding load code is needed
+	if '$(vL.PrecedingLoad)' = 'Y' then
+		'$(vL.Table)':
+		$(vL.SQLCodePL)
+			$(vL.Fields_ToLoad_PL)
+		$(vL.WhereCode_PL)
+		;
+		$(vL.SQLCode)
+			$(vL.Fields_ToLoad_L)
+		from $(vL.FromCode)
+		$(vL.WhereCode_L)
+		$(vL.SQLWithUR);
+	
+	else 
+	
+		'$(vL.Table)':
+		$(vL.SQLCode)
+			$(vL.Fields_ToLoad_L)
+		from $(vL.FromCode)
+		$(vL.WhereCode_L)
+		$(vL.SQLWithUR);
+	end if
+
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Table Store handling
+
+	Syntax:
+	Called by the extraction cycle : Call Fz_StoreTable()
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_StoreTable(pL.TableToStore)
+	unqualify "ETL_*";
+	
+	//Check if it is an INCR extraction to concatenate the historical qvd
+	if '$(vL.TableLoadingType)' = 'INCR' then
+		let vL.NoOfRowsIncremental = num(NoOfRows('$(pL.TableToStore)'),'#.##0');
+		Call Fz_Trace ('Table $(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo) contains $(vL.NoOfRowsIncremental) new records')
+		
+		//In INCR mode, concatenate the historical qvd
+		
+		//If INCR on a date field --> load from the qvd only < dates, else load all																		//<<------------------------
+		if('$(vL.LastUpdateDateField)' <> '') 	then
+			//If there is a update primary key > load from the qvd only the new records, else load all
+			//if('$(vL.TablePrimaryKey_Update)' <> '') 	then			// Massimo 04/05/2016
+			//	set vL.ConcatenateWhere = where num($(vL.Filter_Field_INCR)) < '$(vL.LastUpdateDate)' and not exists($(vL.TablePrimaryKey_Update));   // Massimo 04/05/2016	//<<------------------------ new2 (i dati storici sono letti da qvd e quindi il formalismo è quello di QlikView)
+			//else 									// Massimo 04/05/2016
+			//	set vL.ConcatenateWhere = where num($(vL.Filter_Field_INCR)) < '$(vL.LastUpdateDate)';		// Massimo 04/05/2016											//<<------------------------ new2 (i dati storici sono letti da qvd e quindi il formalismo è quello di QlikView)	
+			//end if
+
+			Let vL.LastUpdateDateSQL_MS = date(num($(vL.LastUpdateDate)),'DD/MM/YYYY');	// Massimo 04/05/2016
+								
+			if('$(vL.TablePrimaryKey_Update)' <> '') 	then				// Massimo 04/05/2016
+				set vL.ConcatenateWhere = where $(vL.Filter_Field_INCR) < '$(vL.LastUpdateDateSQL_MS)' and not exists($(vL.TablePrimaryKey_Update)); // Massimo 04/05/2016	//<<------------------------ new2 (i dati storici sono letti da qvd e quindi il formalismo è quello di QlikView)
+			else 										// Massimo 04/05/2016
+				set vL.ConcatenateWhere = where $(vL.Filter_Field_INCR) < '$(vL.LastUpdateDateSQL_MS)';		// Massimo 04/05/2016											//<<------------------------ new2 (i dati storici sono letti da qvd e quindi il formalismo è quello di QlikView)	
+			end if										// Massimo 04/05/2016
+		else 
+		
+			//If there is a update primary key > load from the qvd only the new records, else load all
+			if('$(vL.TablePrimaryKey_Update)' <> '') 	then
+				set vL.ConcatenateWhere = where not exists($(vL.TablePrimaryKey_Update));
+			else 
+				set vL.ConcatenateWhere = '';
+			end if	
+		 	
+		end if	
+		
+		//AD 18.12.2014 START 
+			//Controllo se il flag Store Partial è settato a Y e salvo la tabella parziale
+			//che contiene i record > del valore di riferimento. Metto in coda al nome la data di running dello script
+
+		if('$(vL.Store_Partial)'='Y') then
+			let vL.TableSuffix = Date(Today(),'YYYYMMDD');
+			Store '$(pL.TableToStore)' into '$(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)_$(vL.Segment_NumOfYearTo)$(vL.Underscore)$(vL.TableSuffix).qvd'; 
+		end if
+
+		//To manage the tables in incremental mode on the counter field I don't need to read again the qvd,
+		//that on big amount of data is really time consuming, I use the Fieldvalue to get the max value 
+		//only on the incremental table
+
+
+		//Test if the incremental is based on a date or a key
+		
+		if($(vL.LastUpdateDateField) = '') then //FRC 05/10/2015
+		// Managing the KEY case
+			//Check if there are records on the incremental table
+			if(FieldValueCount('$(vL.LastCountField)')>0) then
+			
+				ETL_MaxFieldValue:
+				noconcatenate Load
+					Floor(Max(Fieldvalue('$(vL.LastCountField)',RecNo())))	as MaxCountField
+				AutoGenerate 
+					FieldValueCount('$(vL.LastCountField)');
+					
+				Let	vL.MaxLastCounter =	Peek('MaxCountField', 0,'ETL_MaxFieldValue');
+				drop table ETL_MaxFieldValue;
+			
+				'$(pL.TableToStore)':
+				Concatenate ('$(pL.TableToStore)')
+				LOAD * FROM $(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd (qvd)
+				$(vL.ConcatenateWhere);
+			else
+				// no records on the incremental table so I load the QVD of the table and I read the max value of 
+				// the key field and I store it in a variable to have it for saving after in the LastUpdateLog
+				
+				'$(pL.TableToStore)':
+				Concatenate ('$(pL.TableToStore)')
+				LOAD * FROM $(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd (qvd)
+				$(vL.ConcatenateWhere);
+
+				ETL_MaxFieldValue:
+				noconcatenate Load
+					Floor(Max(Fieldvalue('$(vL.LastCountField)',RecNo())))	as MaxCountField
+				AutoGenerate 
+					FieldValueCount('$(vL.LastCountField)');
+					
+				Let	vL.MaxLastCounter =	Peek('MaxCountField', 0,'ETL_MaxFieldValue');
+				drop table ETL_MaxFieldValue;
+
+			end if
+		
+			//AD 18.12.2014 END
+		
+			//If there is a delete primary key > load the primary key from the DB and perform an inner join with the qvd
+			if('$(vL.TablePrimaryKey_Delete)' <> '') 	then
+				inner join ('$(pL.TableToStore)') $(vL.SQLCode) $(vL.TablePrimaryKey_Delete) from $(vL.FromCode) $(vL.WhereCode_L);	//Note: the Inner joins does not consider preciding load where conditions.
+			end if
+		
+		else
+			// Managing the Date Case
+			if(FieldValueCount('$(vL.LastUpdateDateField)')>0) then
+			
+				ETL_MaxFieldValue:
+				noconcatenate Load
+					Floor(Max(Fieldvalue('$(vL.LastUpdateDateField)',RecNo())))	as MaxDateField //FRC tolto il Floor()
+				AutoGenerate 
+					FieldValueCount('$(vL.LastUpdateDateField)');
+					
+				Let	vL.MaxLastDate =	Peek('MaxDateField', 0,'ETL_MaxFieldValue');
+				drop table ETL_MaxFieldValue;
+			
+				'$(pL.TableToStore)':
+				Concatenate ('$(pL.TableToStore)')
+				LOAD * FROM $(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd (qvd)
+				$(vL.ConcatenateWhere);
+			else
+				// no records on the incremental table so I load the QVD of the table and I read the max value of 
+				// the key field and I store it in a variable to have it for saving after in the LastUpdateLog
+				
+				'$(pL.TableToStore)':
+				Concatenate ('$(pL.TableToStore)')
+				LOAD * FROM $(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd (qvd)
+				$(vL.ConcatenateWhere);
+
+				ETL_MaxFieldValue:
+				noconcatenate Load
+					Floor(Max(Fieldvalue('$(vL.LastUpdateDateField)',RecNo())))	as MaxDateField //FRC tolto il Floor()
+				AutoGenerate 
+					FieldValueCount('$(vL.LastUpdateDateField)');
+					
+				Let	vL.MaxLastDate =	Peek('MaxDateField', 0,'ETL_MaxFieldValue');
+				drop table ETL_MaxFieldValue;
+
+			end if
+			
+			let vL.NoOfRowsIncremental = '';
+		end if
+	end if
+	
+		//Check that the recordset have NoRecord > 0 (else give a warning)
+		if(NoOfRows('$(pL.TableToStore)')=0) Then
+			Call Fz_Trace ('WARNING: Table $(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo) contains 0 record')
+		end if
+		
+		// AD 07.01.2015 START
+		// if I'm doing a FULL reload ona table set to be INCR or I'm doing a Init FULL
+		// on big data table (> 100 ML records) I calculate the max value of the incrmental field
+		// to store it on the LastUpdateLog. This is faster than other methods.
+		// I need to check if is a Init Full or just an INCR on the first execution
+
+		if '$(vL.TableLoadingType)' <> 'INCR' and '$(vL.LastCountField)' <> '' then			
+			ETL_MaxFieldValue:
+			noconcatenate Load
+				Floor(Max(Fieldvalue('$(vL.LastCountField)',RecNo())))	as MaxCountField
+			AutoGenerate 
+				FieldValueCount('$(vL.LastCountField)');
+				
+			Let	vL.MaxLastCounter =	Peek('MaxCountField', 0,'ETL_MaxFieldValue');
+			drop table ETL_MaxFieldValue;
+		end if
+		
+		if '$(vL.TableLoadingType)' <> 'INCR' and '$(vL.LastUpdateDateField)' <> '' then			
+			ETL_MaxFieldValue:
+			noconcatenate Load
+				//Fieldvalue('$(vL.LastUpdateDateField)',RecNo())	as MaxDateField ****FRC l'espressione salva un valore di data errato 05/10/2015
+				Floor(Max(Fieldvalue('$(vL.LastUpdateDateField)', RecNo())))	as MaxDateField //FRC 05/10/2015 (tolto il Floor())
+			AutoGenerate 
+				FieldValueCount('$(vL.LastUpdateDateField)');
+				
+			Let	vL.MaxDateCounter =	Peek('MaxDateField', 0,'ETL_MaxFieldValue');
+			drop table ETL_MaxFieldValue;
+		end if		
+		// AD 07.01.2015 END
+		
+		
+		Call Fz_Trace ('STORE $(pL.TableToStore) into $(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd')
+		
+		//variables definition and store
+		set vL.StorePath = '$(vL.Path_QVD_DwStaging)$(vL.SubPathQVD)';
+	//	set vL.StorePath_CSV = '$(vL.Path_CSV_DwStaging)$(vL.SubPathQVD)'; //FRC 06/10/2015
+		set vL.StoreQvdName = '$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).qvd';
+	//	set vL.StoreCSVName = '$(vL.Prefix_QVD_Staging)$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo).csv'; //FRC 06/10/2015
+		let vL.PathFileName_Store = '$(vL.StorePath)' & '$(vL.StoreQvdName)';
+	//	let vL.PathFileName_CSV_Store = '$(vL.StorePath_CSV)' & '$(vL.StoreCSVName)'; //FRC 06/10/2015
+
+		//Store the table
+		Store '$(pL.TableToStore)' into $(vL.PathFileName_Store);
+	//	Store '$(pL.TableToStore)' into $(vL.PathFileName_CSV_Store) (delimiter is ','); //FRC 06/10/2015
+
+		//Extraction log table - variables definition
+		Let	vL.StoreDate					=	Date(Now());
+		Let	vL.StoreTime					=	Time(Now(),'hh:mm:ss');
+		Let vL.StoreTimestamp				=	Timestamp(Now());
+		Let	vL.DurationStore				=	Time('$(vL.StoreTimestamp)' - '$(vL.LastTimeStore)');
+		
+		//Count the fields and columns of the stored/dropped table 
+		Let	vL.RowNumTTD					=	Num(NoOfRows('$(pL.TableToStore)'),'#.##0');
+		Let	vL.FieldNumTTD				=	Num(NoOfFields('$(pL.TableToStore)'),'#.##0');	
+			
+		ETL_MonitoringLog:
+		Load
+			 '$(vL.Source)'					as ETL_Source
+			,'$(vL.ExtractionCounter)'		as ETL_ExtractionCounter
+			,'$(vL.InitETL_TimeStamp)'		as ETL_Key_ETL_Timestamp
+			,'$(pL.TableToStore)$(vL.Underscore)$(vL.Segment_NumOfYearTo)'	as ETL_StoredTableName
+			,'$(vL.StorePath)'				as ETL_StorePath
+			,'$(vL.StoreQvdName)'			as ETL_StoreQvdName
+			,'$(vL.RowNumTTD)'				as ETL_RowNum
+			,'$(vL.FieldNumTTD)'			as ETL_FieldNum
+			,'$(vL.StoreDate)'				as ETL_StoreDate
+			,'$(vL.StoreTime)'				as ETL_StoreTime
+			,'$(vL.TableLoadingType)'		as ETL_ExtractionMode
+			,'$(vL.NoOfRowsIncremental)'	as ETL_IncrementalRow
+			,'$(vL.DurationStore)'			as ETL_ExtractionDuration
+		AutoGenerate(1);		
+		
+		//Variables used to calculate the duration
+		Let vL.LastTimeStore 		= 	Timestamp(now(1));
+		
+		//If there is a field Counter or Date then generate the log with the max counter/date
+		if '$(vL.TableLoadingType)' = 'FULL' or ('$(vL.TableLoadingType)' = 'INCR' and '$(vL.Segment_Period_i)' = '$(vL.Segemnt_NumOfPeriods)') Then					//<<--- new eseguo la memorizzazione solo dell'ultimo periodo --------------------------------------------------------
+			if('$(vL.LastUpdateDateField)' <> '' or '$(vL.LastCountField)' <> '')	Then
+			 	Call Sub_LastUpdateLog																							//<<-----------------------------------------------------------
+			end if																												// VERIFICARE CHE IL MAX Data sia calcolato solo nell'utimo ciclo di lettura in caso di Segmentazione 
+		end if																													//<<--- new eseguo la memorizzazione solo dell'ultimo periodo --------------------------------------------------------
+		
+		Drop table '$(pL.TableToStore)';	
+
+		//FM001C Reset just in case there is no yearly segmentation
+		if ('$(vL.Segment_NumOfYearTo)' = '') then		
+			set vL.Underscore = '';
+		end if
+
+		set vL.Segment_NumOfYearTo = '';
+		
+		
+End Sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Generate the table LastUpdateLog containing the dates / counters used by the incremental extraction
+	
+	Syntax:
+	Called at the end of the store routine Fz_StoreTable
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_LastUpdateLog
+	unqualify "ETL_*";
+	
+	Call Fz_Trace ('Generating Log LastUpdateField')	
+	
+	//If a date or counter field is setted in the Settings LastUpdate > Create a table with the max date calculated on QVD previously stored 
+	if('$(vL.LastUpdateDateField)' <> '') 	then
+		ETL_LastUpdateLog:
+		Load distinct
+			 '$(vL.Source)'						as ETL_LogLU_Source
+			,'$(vL.Table)'						as ETL_LogLU_TableName
+			,'$(vL.Filter_Field_INCR)'			as ETL_LogLU_FieldName  		
+			,'$(vL.MaxLastDate)'				as ETL_LogLU_LastUpdateDate 
+			//,'$(vL.MaxDateCounter)'				as ETL_LogLU_LastUpdateDate --- FRC Riga originale
+			,''						as ETL_LogLU_LastCountNum
+			//, '$(vL.MaxLastDate)' as Numero_records_nel_QVD --- FRC
+			From   
+			$(vL.PathFileName_Store) (qvd);
+	
+	elseif('$(vL.LastCountField)' <> '')	then
+	
+	
+		ETL_LastUpdateLog:
+		Load 
+			 '$(vL.Source)'						as ETL_LogLU_Source
+			,'$(vL.Table)'						as ETL_LogLU_TableName
+			,'$(vL.Filter_Field_INCR)'			as ETL_LogLU_FieldName
+			,''									as ETL_LogLU_LastUpdateDate
+			,'$(vL.MaxLastCounter)'				as ETL_LogLU_LastCountNum
+		Autogenerate(1);
+	
+	end if
+
+	if not isnull(filetime('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd')) then
+		ETL_LastUpdateLog:
+		concatenate load * from $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd (qvd)
+		where not exists(ETL_LogLU_TableName);
+	end if
+	
+	//Store the QVD in the Log directory
+	Store ETL_LastUpdateLog into $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd (qvd);	
+	
+	drop table ETL_LastUpdateLog;
+
+End Sub
+
+
+
+
+//---------Post Extraction
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Load the LastUpdateLog table (log with counter/date used by the incremental extraction process) 
+	
+	Syntax:
+	Called at the end of the extraction process: Call Sub_Load_LastUpdateLog
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Load_LastUpdateLog
+	if not isnull(filetime('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd')) then
+		ETL_LastUpdateLog:
+		noconcatenate Load * from $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_LastUpdateLog.qvd (qvd);
+	end if
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Variables Reset after the extraction process
+	
+	Syntax:
+	Called at the end of the extraction process: Call Sub_Reset_Variables
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Reset_Variables
+	set vL.TableLoadingType 		= 'FULL';
+	set vL.LastUpdateDateField 	= '';
+	set vL.LastCountField 		= '';
+	
+	set	vL.Connection_String		= '';
+	set	vL.Connection_Source		= '';
+	set	vL.Connection_Type		= '';
+	set	vL.SubPathQVD				= '';
+	set	vL.SubPathExtDB			= '';
+End Sub
+

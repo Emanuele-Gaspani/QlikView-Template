@@ -1,0 +1,281 @@
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Store and drop handling
+	
+	Syntax: Fz_StoreTable ('TableName' [,DropMode,StorePath,StoreQvdName,StoreCsv])
+	
+	
+	Store the table and drop at the end of the script (End of Script):
+	Call Fz_StoreTable ('TableName')
+
+	Store the table and next the drop (ForceDrop):
+		Call Fz_StoreTable ('TableName',1)
+		
+	Store the table in a SubPath of the default location (by default $(vL.Path_QVD_DwAssociative) )
+		Call Fz_StoreTable ('TableName','','SubPath')
+		
+	Store the table with a different name (by default: $(vL.Prefix_Name_DwAssociativo)PreTableName.QVD)			
+		Call Fz_StoreTable ('TableName','','','Table_NewName')
+		
+	Store the table saving CSV files
+		Call Fz_StoreTable ('TableName','','','',1)
+
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_StoreTable (pL.TableToStore,pL.DropMode,pL.StorePath,pL.StoreQvdName,pL.StoreCsv)
+	unqualify "ETL_*";
+	
+	If('$(vL.QVD_STORE)' = 1)	Then
+		
+		Call Sub_Metadata		//Apply Metadata (Tables, Fileds)
+		
+		If('$(pL.StorePath)' = '')	Then
+			Let vL.StorePath		=	'$(vL.Path_QVD_DwAssociative)';
+			Let vL.StorePath_CSV	=	'$(vL.Path_CSV_DwAssociative)'; //***FRC 17/11/2015
+		Else 
+			Let vL.StorePath		=	'$(vL.Path_QVD_DwAssociative)'&'$(pL.StorePath)';
+			Let vL.StorePath_CSV	=	'$(vL.Path_CSV_DwAssociative)'&'$(pL.StorePath)';//***FRC 17/11/2015
+		EndIf
+		
+		If('$(pL.StoreQvdName)' = '')	Then
+			Let	vL.StoreQvdName	=	'$(vL.Prefix_Name_DwAssociativo)' & '$(pL.TableToStore)';
+		Else
+			Let	vL.StoreQvdName	=	'$(vL.Prefix_Name_DwAssociativo)' & '$(pL.StoreQvdName)';
+		EndIf
+		
+		Call Fz_Trace('Store Table: $(pL.TableToStore) into $(vL.StorePath)$(vL.StoreQvdName)')
+
+		Store '$(pL.TableToStore)' into $(vL.StorePath)$(vL.StoreQvdName).QVD;
+		
+		If ('$(pL.StoreCsv)' = 1 ) Then //Lelo 16/03/2016 -- duplicare sempre il salvataggio anche in csv mi sembrava esagerato
+			Call Fz_Trace('Store CSV Table: $(pL.TableToStore) into $(vL.StorePath_CSV)$(vL.StoreQvdName).CSV')
+			Store '$(pL.TableToStore)' into $(vL.StorePath_CSV)$(vL.StoreQvdName).CSV (delimiter is ','); //***FRC 17/11/2015
+		EndIf
+
+		//Count fields and rows of the stored table
+		Let	vL.RowNumTTD			=	Num(NoOfRows('$(pL.TableToStore)'),'#.##0');
+		Let	vL.FieldNumTTD		=	Num(NoOfFields('$(pL.TableToStore)'),'#.##0');
+		
+		Let	vL.StoreDate			=	Date(Now());
+		Let	vL.StoreTime			=	Time(Now(),'hh:mm:ss');
+		
+		//Save in an Inline table the stored tables name to excelude them from the default monitoring routine
+		ETL_TableNoDefaultMonitoring:
+		Load
+			'$(pL.TableToStore)' as ETL_NoDefaultMonitoring
+		AutoGenerate(1);
+		
+		//If the drop mode is 'End of Script' --> save in an inline the tables name to be dropped at the end of the script 
+		If('$(pL.DropMode)'<>1)	Then
+			ETL_TableToDrop:
+			Load
+				'$(pL.TableToStore)' as ETL_TableToDropName
+			AutoGenerate(1);	
+		Endif
+			
+			ETL_MonitoringLog:
+			Load
+				'$(vL.ExtractionCounter)'		as	ETL_ExtractionCounter
+				,'$(vL.InitETL_TimeStamp)'		as	ETL_Key_ETL_Timestamp
+				,'$(pL.TableToStore)'			as	ETL_StoredTableName
+				,'$(vL.StorePath)'				as	ETL_StorePath
+				,'$(vL.StoreQvdName)'			as	ETL_StoreQvdName
+				,if('$(pL.DropMode)'=1
+					,'ForceDrop'
+					,'End of Script')			as	ETL_DropMode
+				,'$(vL.RowNumTTD)'				as	ETL_RowNum
+				,'$(vL.FieldNumTTD)'			as	ETL_FieldNum
+				,'$(vL.StoreDate)'				as	ETL_StoreDate
+				,'$(vL.StoreTime)'				as	ETL_StoreTime
+			AutoGenerate(1);
+		
+			//If the parameter ForceDrop=1 > drop the table
+			If('$(vL.QVD_DROP)' = 1 and '$(pL.DropMode)'=1) 	Then
+				if NoOfRows('$(pL.TableToStore)')>=0 Then
+					Call Fz_Trace('Drop Table: $(pL.TableToStore)')
+					Drop Table '$(pL.TableToStore)';
+				EndIf
+			EndIf
+	EndIf
+	
+End Sub
+
+
+//Drop tables at the end of the script
+Sub Fz_DropTables
+
+	unqualify "ETL_*";
+	
+	If(('$(vL.QVD_DROP)'	=	1) and ('$(vL.QVD_STORE)'	=	1))	Then
+
+		Let vL.NumTaleToDrop				=	NoOfRows('ETL_TableToDrop');
+		For	vL.i = 0 to $(vL.NumTaleToDrop)-1
+			Let vL.ETL_TableToDrop					=	Peek('ETL_TableToDropName',$(vL.i),'ETL_TableToDrop');
+			if NoOfRows('$(vL.ETL_TableToDrop)')>0 Then
+				Call Fz_Trace('Drop Table: $(vL.ETL_TableToDrop)')
+				Drop Table '$(vL.ETL_TableToDrop)';
+			EndIf
+			Let vL.ETL_TableToDrop					=;
+			
+		Next vL.i
+		
+	EndIf
+
+	If(NoOfRows('ETL_TableToDrop')>0)	Then
+		Drop Table ETL_TableToDrop;
+		TRACE TABELLA $(ETL_TableToDrop);
+	EndIf
+	
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Auditing routine - monitor number of rows and columns for each table that have not been stored using Fz_StoreDrop and it is still in the associative cloud.
+	
+	Syntax:
+	Called at the end of the ETL process (Call Sub_DefaultMonitoring)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_DefaultMonitoring
+	unqualify "ETL_*";
+		
+		//Empty inline
+		ETL_TableNoDefaultMonitoring:
+		Load
+			'' as ETL_NoDefaultMonitoring
+		AutoGenerate(1);
+				
+		Let vL.NumOfTableInCloud			=	NoOfTables();
+
+		//Cycle on tables in the associative cloud
+		Let vL.i							=	Null();
+		For vL.i = 0 to '$(vL.NumOfTableInCloud)' - 1
+			Let vL.NameOfTableInCloud			=	TableName($(vL.i));
+			
+			//Count the number of rows and columns for the table in the associative cloud
+			Let vL.RowNumTTD					=	Num(NoOfRows('$(vL.NameOfTableInCloud)'),'#.##0');
+			Let vL.FieldNumTTD				=	Num(NoOfFields('$(vL.NameOfTableInCloud)'),'#.##0');		
+
+			ETL_MonitoringLog:
+			Load
+				'$(vL.ExtractionCounter)'	as	ETL_ExtractionCounter
+				,'$(vL.InitETL_TimeStamp)'	as	ETL_Key_ETL_Timestamp
+				,'$(vL.NameOfTableInCloud)'as	ETL_StoredTableName
+				,''							as	ETL_StorePath
+				,''							as	ETL_StoreQvdName
+				,''							as	ETL_DropMode
+				,'$(vL.RowNumTTD)'			as	ETL_RowNum
+				,'$(vL.FieldNumTTD)'		as	ETL_FieldNum
+				,''							as	ETL_StoreDate
+				,''							as	ETL_StoreTime
+			AutoGenerate(1)
+			Where
+				Not('$(vL.NameOfTableInCloud)' like 'ETL_*') 							//Exclude tables with 'ETL_' prefix
+				and not exists(ETL_NoDefaultMonitoring, '$(vL.NameOfTableInCloud)');		//Exclude tables stored using Fz_StoreTable (the Fz_StoreTable routine perform the auditing)
+
+		Next	vL.i
+		
+		If(NoOfRows('ETL_TableNoDefaultMonitoring')>0)	Then
+			drop table ETL_TableNoDefaultMonitoring;
+		EndIf
+		
+		
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Metadata handling
+	
+	Syntax:
+	Called by the Fz_StoreTable routine (Call Sub_Metadata)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_Metadata
+
+	unqualify "ETL_*";
+	
+	//Check the existence of the Metadata file
+	if not isnull(filetime('$(vL.Path_Settings)$(vL.ETLName)_Metadata.XLS')) then
+		
+//		Call Fz_Trace('Metadata Table')
+		
+		ETL_Metadata_Tables:
+		Load
+			 [Qlik Table Name] 	as ETL_Met_Tables
+			,[Description]		as ETL_Met_Tables_Descrizione
+		From
+			$(vL.Path_Settings)$(vL.ETLName)_Metadata.XLS
+			(biff, embedded labels, table is Table$)
+		;
+			
+		//Call Fz_Trace('METADATI CAMPI')
+
+		ETL_Metadata_Fields:
+		Load
+			 [Qlik Table Name] 	as ETL_Met_Tables
+			,[Qlik Field Name]	as ETL_Met_Field
+			,[Description]		as ETL_Met_Field_Descrizione
+		From
+			$(vL.Path_Settings)$(vL.ETLName)_Metadata.XLS
+			(biff, embedded labels, table is Field$)
+		;
+		
+		Call Sub_Apply_Metdata
+		
+	End if	
+End Sub
+
+
+Sub Sub_Apply_Metdata_Tables
+	unqualify "ETL_*";
+
+	Map_tabelle:
+	Mapping
+	Load
+		ETL_Met_Tables
+		,ETL_Met_Tables_Descrizione
+	Resident
+		ETL_Metadata_Tables;
+		
+	Comment Tables using Map_tabelle;
+
+End Sub
+
+
+Sub Sub_Apply_Metdata_Fields
+	unqualify "ETL_*";
+
+	Map_Campi:
+	Mapping
+	Load
+		ETL_Met_Field
+		,ETL_Met_Field_Descrizione
+	Resident
+		ETL_Metadata_Fields;
+
+		
+	Comment Fields using Map_Campi;
+
+End Sub
+
+
+//Sub Sub_Apply_Metdata_Tags
+//	unqualify "ETL_*";
+//	
+//	Map_Tags:
+//	Mapping
+//	Load
+//		ETL_Met_Field
+//			,ETL_Met_Tag
+//	Resident
+//		ETL_Metadata_Tags;
+//		
+//	Tag Fields using Map_Tags;
+//	
+//End Sub
+
+
+Sub Sub_Apply_Metdata
+	unqualify "ETL_*";
+	
+	Call Sub_Apply_Metdata_Tables
+	Call Sub_Apply_Metdata_Fields
+	//Call Sub_Apply_Metdata_Tags
+	
+End Sub

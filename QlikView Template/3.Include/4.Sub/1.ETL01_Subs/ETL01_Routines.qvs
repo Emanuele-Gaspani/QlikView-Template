@@ -1,0 +1,126 @@
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routines for handling the monitoring of the executed process (Summary)
+   
+   Syntax:
+   Called at the end of the script (Call Sub_MonitoringLogSummary)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_MonitoringLogSummary
+	unqualify "ETL_*";
+	
+	//Store of the sumary table of stored tables
+	Call Fz_Trace('MONITORING - Recap')
+	Call Fz_Trace('Store Recap Monitoring log: $(vL.ETLName)_MonitoringLogSintesi.qvd')
+	
+	//Load in resident the ETL_MonitoringLog table to perform a group by (the table is regenerated at every reload)
+	if(NoOfRows('ETL_MonitoringLog')>0)	Then	
+
+		ETL_MonitoringLogSummary:
+		Load
+			*
+			,time(ETL_EndTimestamp-ETL_StartTimestamp) as ETL_Duration
+		;	
+		Load
+			 ETL_Key_ETL_Timestamp
+			,min(timestamp(Timestamp#(ETL_Key_ETL_Timestamp, 'YYYY.MM.DD hh.mm.ss')))				as ETL_StartTimestamp
+			,max(timestamp(Timestamp#(ETL_StoreDate &' '& ETL_StoreTime,'DD/MM/YYYY hh:mm:ss')))	as ETL_EndTimestamp
+			,num(count(ETL_StoreQvdName),'#.##0')													as ETL_TotalNumOfTable
+			,num(sum(ETL_RowNum),'#.##0')															as ETL_TotalRowNum
+			,num(sum(ETL_FieldNum),'#.##0')														as ETL_TotalFieldNum
+		resident ETL_MonitoringLog
+		group by ETL_Key_ETL_Timestamp;
+
+	end if
+
+	//Store della tabella di monitoring sintesi
+	if(NoOfRows('ETL_MonitoringLogSummary')>0)	Then
+		Store ETL_MonitoringLogSummary into $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_MonitoringLogSintesi.qvd (qvd);	
+	end if	
+	
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine to handle the connections for the custom extractions
+   
+   Syntax:
+   Called by the user in the Custom Extraction Tab: Call Fz_CustomConnection ('Connection ID') the connection ID is the field Source ID on ETL01_Settings.xls (Connections Setup)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_CustomConnection (pL.Connection)
+	unqualify "ETL_*";
+
+	//Load the connection strings from Settings.xls
+	ETL_Connections_Custom:
+	noconcatenate Load
+		  [Source ID]		as [Source ID]
+		 ,[Connection String] as [Connection String]
+		 
+	From
+		$(vL.Path_Settings)$(vL.ETLName)_Settings.XLS
+		(biff, embedded labels, table is [Connections Setup$])
+	Where
+		Upper([Enable])='Y'
+	and
+		[Source ID] = '$(pL.Connection)';
+
+	Let	vL.Connection_String	=	Peek('Connection String',	0,'ETL_Connections_Custom');
+	Let	vL.Connection_Source	=	Peek('Source ID',			0,'ETL_Connections_Custom');
+	
+	//Starting the Connection
+	$(vL.Connection_String);	
+
+	Call Fz_Trace ('Custom Connection: $(vL.Connection_Source)')
+	drop table ETL_Connections_Custom;
+	
+End Sub
+
+// <<<------------------------------------------------------------------- Aggiunto il 30/10/2014 ------------------------------------------
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine to handle the "where" clause for incremental feature (only for Date)
+   
+   Syntax:
+   Called by the user in the Sub_Incremental routine
+   Parameters: 
+   vL.DB_Type 		 = type of source database from settings (SS for MS SQL serevr / ORA for Oracle etc.)
+   vL.LastUpdateDate = date serial 
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_BuildWhereForIncrementalDate (vL.DB_Type,vL.LastUpdateDate)
+
+	//compongo la clausola di where in presenza di incrementale in funzione del tipo di database sorgente
+	// ACC = MS Access -> utilizza la data seriale 
+	// SS  = MS SQL Server -> utilizza la data seriale ma con un offset di -2 e richiede l'uso di CAST. Esempio -> CAST(41937 as DateTime)
+	// ORA = Oracle -> utilizza la data in formato 'GG/MM/YYYY' e richiede l'uso di TO_DATE. Esempio ->  TO_DATE('30/09/2014','DD/MM/YYYY')
+	// Il campo vL.LastUpdateDate (che è archiviato nel file *_LastUpdateLog.qvd) contiene la data massima in formato seriale (MS Excel / Access) e, va aggiustata 
+	// nel caso di utilizzo con SS e ORA
+	// vengono predisposte anche le corrispondenti clausole per la limitazione dei record presenti precedentemente sul Qvd 
+
+		Trace $(vL.DB_Type);						// for debug
+		Trace $(vL.LastUpdateDate);					// for debug
+
+		//Let vL.LastUpdateDateSQL = $(vL.LastUpdateDate) -2;
+		//Let vL.LastUpdateDateSQL = Year($(vL.LastUpdateDate)) & Num(Month($(vL.LastUpdateDate)),'00') & Num(Day($(vL.LastUpdateDate)),'00');	//--	EMK ---FRC
+		Let vL.LastUpdateDateSQL = $(vL.LastUpdateDate)	;	
+
+		if 	   '$(vL.DB_Type)' = 'ACC' then
+			Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= $(vL.LastUpdateDate)';
+			//Let vL.Filter_INCR_qvd  = '$(vL.LastUpdateDate)';
+		elseif '$(vL.DB_Type)' = 'SS'  then
+			//Let vL.Filter_INCR		= '$(vL.Filter_Field_INCR) >= ' & ' CAST(' & $(vL.LastUpdateDateSQL) & ' as DateTime)';
+			//Let vL.Filter_INCR		= '$(vL.Filter_Field_INCR) >= CONVERT(DATE,&#39;$(vL.LastUpdateDateSQL)&#39;,112)';	--	EMK FRC 05/10/2015
+			Let vL.Filter_INCR		= '$(vL.Filter_Field_INCR) >= Date($(vL.LastUpdateDateSQL),'YYYY-MM-DD')&'T00:00:00Z'';  //FRC 05/10/2015
+			//Let vL.Filter_INCR_qvd 	= ' CAST(' & $(vL.LastUpdateDateSQL) & ' as DateTime)';
+		elseif '$(vL.DB_Type)' = 'ORA' then
+		//	Let vL.Filter_INCR 		= replace('$(vL.Filter_Field_INCR) >= ' & ' TO_DATE(§' & Date($(vL.LastUpdateDate),'DD/MM/YYYY') & '§,§DD/MM/YYYY§)','§', chr(39)) ;	//-- genera troppi apici viene richiamata ?
+			//Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= ' & ' TO_DATE(' & chr(39) & Date($(vL.LastUpdateDate),'DD/MM/YYYY') & chr(39) & ',' & chr(39) & 'DD/MM/YYYY' & chr(39) & ')';
+			Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= TO_DATE(&#39;$(vL.LastUpdateDateSQL)&#39;,&#39;YYYYMMDD&#39;)';	//--	EMK
+			//Let vL.Filter_INCR_qvd  = ' CAST(' & $(vL.LastUpdateDateSQL) & ' as DateTime)'; 
+		elseif 	   '$(vL.DB_Type)' = 'DB2' then
+			Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= $(vL.LastUpdateDate)';
+		elseif 	   '$(vL.DB_Type)' = 'AS400' then
+			Let vL.Filter_INCR 		= '$(vL.Filter_Field_INCR) >= $(vL.LastUpdateDate)';
+		end if
+		
+		//Trace $(vL.Filter_INCR);					// for debug	
+
+End Sub
+
+

@@ -1,0 +1,11 @@
+8.Import
+
+	Contiene tutti i file di input che non è possibile reperire da database 
+	o da altri file qvd. E' inoltre possibile definire delle funzioni Qlik
+	nelle celle per ottenere dati dinamici.
+
+Esempi:
+
+	Controllo dell'inserimento di nuove causali
+	Raggruppamento della merce vecchia su date calcolate
+	

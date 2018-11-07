@@ -1,0 +1,242 @@
+/*----------------------------------------------------------------------------------------------------------------------------------
+	Store a calculed value (Aggregation Functions) on a table field (es: sum/count/count distinct)
+	Execute an adimensional groub by or with a specifed dimension
+	
+	Syntax: 	
+	Call Fz_CHECK_Key_Mesure
+	(
+		 'Description of the value'		//  1 - Name of the monitored value
+		,'Aggregation Functions'		//  2 - Aggregation Functions																		
+		,'Resident/From [Tabella 1]'	//  3 - Table Name (Resident/From/where..)
+		,'[Aggreagation field]'			// [4] - The value is calculated within the distinct values of a field
+	)
+														
+	Examples:
+		Call Fz_CHECK_Key_Mesure('Ative Store per years'		,'count (distinct [K_Store_ID])'	,'Resident [Store Sales]','year([Sales Date])')
+		Call Fz_CHECK_Key_Mesure('Sales per store/year'		,'count ([N° of items sold])'		,'Resident [Store Sales] WHERE [Sales Date] < today()','K_Store_ID&year([Sales Date])')
+		Call Fz_CHECK_Key_Mesure('Total Sales'					,'sum 	([Sales €])'				,'Resident [Store Sales]')
+		Call Fz_CHECK_Key_Mesure('N° of items sold per year'	,'sum 	([N° of items sold])'		,'From [$(vL.Path_QVD_DwAssociative)Dw_Store Sales.qvd] (qvd)','year([Sales Date])')
+	 
+	Aggregation Functions:
+	 Basic:
+		sum([distinct]expression) 
+		min( expression[, rank] ) 
+		max( expression[, rank] ) 
+		only(expression ) 
+		mode(expression ) 
+		firstsortedvalue ([ distinct ] expression [, sort-weight [, n ]]) 
+	  String:
+		MinString(expression ) 
+		MaxString(expression ) 
+		FirstValue(expression) 
+		LastValue(expression) 
+		concat ([ distinct ] expression [, delimiter [, sort-weight]]) 
+	  Counter:
+		count([distinct ] expression | * ) 
+		NumericCount([ distinct ] expression ) 
+		TextCount([ distinct ] expression) 
+		NullCount([ distinct ] expression ) 
+		MissingCount([ distinct ] expression ) 
+ 	
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_CHECK_Key_Mesure(pL.label, pL.aggregation_function, pL.table, pL.aggregation_field)
+	Call Fz_Trace('CHECK KEY MESURE - Calculating value: $(pL.label) - Aggregation Function: $(pL.aggregation_function) - Table: $(pL.table)')
+	
+	
+	//check if an aggreagation on a field is needed
+	If('$(pL.aggregation_field)' = '' or isnull('$(pL.aggregation_field)'))	Then
+			let pL.aggregation_field					=	chr(39)&chr(39);
+	EndIf
+	
+	//Execute the aggregation on a table field
+	let pL.aggregation_type = '$(pL.aggregation_function)';
+	
+	ETL_CHECK_Key_Mesure:
+	NoConcatenate Load 
+		 $(pL.aggregation_field) 		as [Aggregation Field]
+		,$(pL.aggregation_function) 	as [Expression Result] 
+	$(pL.table)
+	group by
+	$(pL.aggregation_field);
+
+		
+	//Store the results in the table ETL_DataValueLog
+	For	vL.i = 0 to NoOfRows('ETL_CHECK_Key_Mesure')-1
+		
+		let vL.Operation_Result 			= peek('Expression Result',$(vL.i),'ETL_CHECK_Key_Mesure');
+		let vL.Aggregation_Field_Value 	= peek('Aggregation Field',$(vL.i),'ETL_CHECK_Key_Mesure'); 
+		
+		//Table Log_Warning (loaded in presentation)
+		Let	vL.LogRow					=	$(vL.LogRow) +1;
+		
+		ETL_DataValueLog:
+		Load
+			 '$(vL.InitETL_TimeStamp)'								as [ETL_Key_ETL_Timestamp]
+			,'$(vL.LogRow)'											as [ETL_RowNum DataValueLog]
+			,'$(vL.InitETL_TimeStamp)'								as [ETL_Timestamp DataValueLog]
+			,'$(pL.label)' &' '& '$(vL.Aggregation_Field_Value)'	as [ETL_Description DataValueLog]
+			,'$(pL.table)'											as [ETL_Table DataValueLog]
+			,'$(pL.aggregation_function)'							as [ETL_Expression DataValueLog]
+			,'$(vL.Operation_Result)'								as [ETL_Value DataValueLog]
+		AutoGenerate(1);
+
+	Next vL.i
+		
+	drop table ETL_CHECK_Key_Mesure;
+	
+	//reset parameters
+	set pL.label						= '';
+	set pL.aggregation_function		= '';
+	set pL.table						= '';
+	set pL.aggregation_field			= '';
+	
+End sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Check if there are duplicate values inside a table field (or an aggregation of the table)
+	
+	Sintassi:
+	Fz_CHECK_Duplicate_Values('[Field Name]','Table_Name', ['[Aggregation Field]'])
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_CHECK_Duplicate_Values(pL.field ,pL.table, pL.aggregation_field)
+	Call Fz_Trace('CHECK DUPLICATE VALUES')
+	
+	//check if an aggreagation on a field is needed
+	If('$(pL.aggregation_field)' = '' or isnull('$(pL.aggregation_field)'))	Then
+			let pL.aggregation_field					=	chr(39)&chr(39);
+	EndIf
+	
+	//Count duplicate values
+	ETL_Check_duplicate_Fields:
+	NoConcatenate Load * WHERE [Frequency Count] > 1 AND Not isnull([Checked Field]);
+	NoConcatenate Load 
+		 $(pL.field) 				as [Checked Field]
+		 ,$(pL.aggregation_field) 		as [Aggregation Field]
+		,count($(pL.field)) 			as [Frequency Count] 
+	$(pL.table)
+	group by $(pL.field),$(pL.aggregation_field);
+	
+	//Concat the findings in a string
+	ETL_Duplicate_Fields:
+	NoConcatenate load concat([Checked Field] &if([Aggregation Field]<>'',' ($(pL.aggregation_field): '& [Aggregation Field]&')'), ' - ') as [Campi Duplicati] resident ETL_Check_duplicate_Fields group by;
+	
+	if( NoOfRows('ETL_Duplicate_Fields')>0)	 then
+		Let vL.Duplicate_Fields = peek('Campi Duplicati', 0	,'ETL_Duplicate_Fields');
+		Call Fz_ERROR('Duplicate Values: TABLE: $(pL.table) - FIELD: $(pL.field) - VALUES: $(vL.Duplicate_Fields)' ,1,0)
+	end if
+	
+	drop tables ETL_Check_duplicate_Fields, ETL_Duplicate_Fields;
+	
+End sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Check if there are empty values inside a table field
+
+	Syntax:
+	Fz_CHECK_Empty_Values('[Field Name]','Table_Name')
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_CHECK_Empty_Values(pL.field,pL.table)
+	Call Fz_Trace('CHECK EMPTY VALUES')
+	
+	//Count empty values
+	ETL_CHECK_Empty_Values:
+	NoConcatenate Load 
+	$(pL.field) as [Checked Field] 
+	$(pL.table)
+	WHERE 
+		trim($(pL.field))= '' 
+			or
+		isnull($(pL.field))
+	;
+	
+	if( NoOfRows('ETL_CHECK_Empty_Values')>0)	 then
+		let vL.NumOf_EmptyValues = NoOfRows('ETL_CHECK_Empty_Values');
+		Call Fz_ERROR('Empty Values: TABLE: $(pL.table) - FIELD: $(pL.field) - n° of empty values: $(vL.NumOf_EmptyValues)',2,0)
+	end if
+	
+	drop tables ETL_CHECK_Empty_Values;
+	
+End sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Check if the values inside a field match the values inside another field (of another table)
+	(for example: che the match between a fact table field and the realated Master Data table)
+
+	Syntax:
+	Fz_CHECK_Exists_Values('[Field Name]','Table_Name', [Field Name Master Data Table], Table_Name_Master_Data)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_CHECK_Exists_Values(pL.field, pL.table, pL.field_MasterData, pL.table_MasterData)
+	Call Fz_Trace('EXISTS IN MASTER DATA')	
+	
+	ETL_Master_Table:
+	LOAD distinct
+		  $(pL.field_MasterData) as [Campo Anagrafica]
+	$(pL.table_MasterData)
+	;
+	
+	ETL_Non_Matching_Field:
+	Load
+		Concat(DISTINCT [Checked Field], ' - ') as [Campi Non Mappati In Anagrafica]
+	;
+	LOAD distinct
+		  $(pL.field) as [Checked Field]
+	$(pL.table)
+	where 
+	 		not exists([Campo Anagrafica], $(pL.field))
+	and 	not isnull($(pL.field));
+	
+	if( NoOfRows('ETL_Non_Matching_Field') > 0)	 then
+		Let vL.Field_Not_Mapped_In_MasterData 	= peek('Campi Non Mappati In Anagrafica', 0	,'ETL_Non_Matching_Field');
+		Call Fz_ERROR('values not exists, TABLE: $(pL.table_MasterData) - FILED: $(pL.field_MasterData): $(vL.Field_Not_Mapped_In_MasterData)',3, 0)
+	end if
+	
+	drop tables ETL_Master_Table, ETL_Non_Matching_Field;
+	
+End sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+	Handle errors defined by the Data quality routines (Non-blocking / Fatal)
+
+	Syntax:
+	Call Fz_ERROR('Message',Codice errore,0)		//Non-blocking alert
+	Call Fz_ERROR('Message',Codice errore,1)		//Fatal error
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_ERROR(pL.error_message,pL.error_code,pL.blocking)
+	Call Fz_Trace('Fz_ERROR')
+	
+	Let	vL.ErrorTimeStamp_now			= Timestamp(now(),'YYYY/MM/DD hh.mm.ss');
+	Let	vL.ErrorTimeStamp_now_time		= Right('$(vL.ErrorTimeStamp_now)',8);
+	Let	vL.ErrorTimeStamp_now_date		= Left('$(vL.ErrorTimeStamp_now)', 10);
+	
+	if('$(pL.blocking)'=0) then 
+		Call Fz_Trace ('NON BLOCKING ALERT')	
+	else
+		Call Fz_Trace ('FATAL ERROR')
+	End if
+
+	Call Fz_Trace ('$(pL.error_message)')
+
+	//Table Log_Warning (loaded in presentation)
+	Let	vL.ErrorLogRow		=	$(vL.ErrorLogRow) +1;
+	ETL_DataQualityLog:
+	Load
+		 '$(vL.InitETL_TimeStamp)'								as [ETL_Key_ETL_Timestamp]
+		,'$(vL.ErrorLogRow)'									as [ETL_RowNum Warning]
+		,'$(vL.InitETL_TimeStamp)'								as [ETL_Timestamp Warning]
+		,'$(pL.error_code)'										as [ETL_K_Cod Warning]
+		,'$(pL.error_message)'									as [ETL_Warning Message]
+		,if($(pL.blocking)=0, 'Continue', 'Exit Script')			as [ETL_Warning Type]
+		,'$(vL.ErrorTimeStamp_now_date)'						as [ETL_Warning Date]
+		,'$(vL.ErrorTimeStamp_now_time)'						as [ETL_Warning Time]
+	AutoGenerate(1);
+	
+	//If it is a fata error (pL.blocking = 1): execute auditing routines and then exit script
+	if('$(pL.blocking)' = 1) then			
+			Call Sub_Auditing_Process	
+		EXIT SCRIPT;
+	End if
+	
+End sub
+

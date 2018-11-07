@@ -1,0 +1,37 @@
+﻿// Sub reset script variables that start with 'vs_' reading XML file 
+
+ 
+Sub Reset_Script_Variable
+
+	let vs_QvwName= DocumentName();
+	
+	
+	ETL_XMLVariable:
+	Load 
+		Name
+	    ,RawValue
+	From
+		$(vs_QvwName)
+		(XmlSimple, Table is [DocumentSummary/VariableDescription])
+	Where
+		Left(Name,3) = 'vs_';
+	
+	Let vs_NumTaleVarToDelete = NoOfRows('ETL_XMLVariable');
+
+		For v_i = 0 to $(vs_NumTaleVarToDelete)-1	Step	1
+		
+			Let vs_VarToDelete = Peek('Name',$(v_i),'ETL_XMLVariable');
+	
+			Let $(vs_VarToDelete) =;
+			
+		Next v_i
+	
+		Let v_i 			= Null();
+		Let vs_VarToDelete	= Null();
+	
+	If(NoOfRows('ETL_XMLVariable')>0)	Then	
+		Drop Table ETL_XMLVariable;
+	EndIf
+	//Drop Manuali
+
+End sub

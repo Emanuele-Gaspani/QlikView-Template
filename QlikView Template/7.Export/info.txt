@@ -1,0 +1,4 @@
+7.Export
+	
+	Inserire qui i file dati che devono essere caricati da altre applicazioni
+	Considerare se i file qvd inseriti dovrebbero essere spostati su Common

@@ -1,0 +1,282 @@
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine Called at the beginning of the script
+
+   Syntax:
+   Called at the beginning of the script (Call Sub_InitETL)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_InitETL
+	unqualify *;
+	
+	set HidePrefix	='ETL_' ;
+	Set vL.ShowMode	= 1;
+	set vL.HighlightInScript= '';
+	
+	//Date and time of ETL beginning
+	Let	vL.LastTimeStore				=	Timestamp(now(1));
+	Let	vL.InitETL_TimeStamp			=	Timestamp(now(1),'YYYY.MM.DD hh.mm.ss');
+	
+	//Name of the qvw
+	Let	vL.QvwName						=	DocumentName();
+	Let vL.ETLName						= 	replace(DocumentName(),'.qvw','');								
+	
+	//Reset Variables
+	Set	vL.TraceLogRow					=	0;
+	
+	Call Fz_Trace('STARTING SCRIPT')
+	
+	//Find the number of extraction reading the historical MonitoringLogETL
+	Set	vL.NumOflog						=	1;
+	Set	vL.ExtractionCounter				=	1;
+	
+	Let vL.MonitoringLog				=	Null();
+	For each vL.MonitoringLog in filelist ('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_MonitoringLog.qvd')
+	
+		ETL_MonitoringLog_tmp: 
+		Load
+			max(ETL_ExtractionCounter)+1 as Max_ETL_ExtractionCounter
+		From
+			$(vL.MonitoringLog)
+			(qvd);
+			
+		Let	vL.ExtractionCounter			=	Peek ('Max_ETL_ExtractionCounter',0,'ETL_MonitoringLog_tmp');
+		
+		Drop Table ETL_MonitoringLog_tmp;
+	
+	Next vL.MonitoringLog
+	
+	
+	//Find the number of extraction reading the historical ScriptLogETL
+	Set	vL.ScriptCounter				=	1;
+	Let	vL.ScriptLog					=	Null();
+	For each vL.ScriptLog in filelist ('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_ScriptLog.qvd')
+		
+		ETL_ScriptLogETL_tmp:
+		Load
+			max (ETL_ScriptCounter)+1 as Max_ETL_ETL_ScriptCounter
+		From
+			$(vL.ScriptLog)
+			(qvd);
+	
+		Let vL.ScriptCounter	=	Peek('Max_ETL_ETL_ScriptCounter',0,'ETL_ScriptLogETL_tmp');
+	
+		Drop Table ETL_ScriptLogETL_tmp;
+	
+	Next vL.ScriptLog
+	
+End Sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine to Handle Trace storing the history in ETL_TraceLog table
+
+   Syntax:
+   Call Fz_Trace('Message')		//use the character § for first quote
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+set vL.TraceLogRow = 0;
+
+Sub Fz_Trace(pL.Msg)
+	unqualify "ETL_*";
+	
+	Let	vL.TraceTimeStamp_now			=	Timestamp(now(),'DD/MM/YYYY hh.mm.ss');
+	Let	vL.TraceTimeStamp_now_time		=	Right('$(vL.TraceTimeStamp_now)',8);
+	Let	vL.TraceTimeStamp_now_date		=	Left('$(vL.TraceTimeStamp_now)', 10);
+	
+	//Check the length of the message to set an = number of '-'
+	let vL.lenTrace = 130 - len('$(pL.Msg) - $(vL.TraceTimeStamp_now)'); //length of the log message 
+	let vL.dashes = repeat( '-', $(vL.lenTrace) );
+	
+	let pL.Msg2 = replace(replace('$(pL.Msg)', chr(39),''),'§',chr(39));	//remove the single quote, § character used to handle single quotes
+
+	Trace ;
+	Trace [-----> $(pL.Msg2) - $(vL.TraceTimeStamp_now) <$(vL.dashes)];
+		
+	Let	vL.TraceLogRow					=	$(vL.TraceLogRow) + 1;
+	
+
+	ETL_TraceLog:
+	Load
+		'$(vL.TraceLogRow)'					as ETL_TraceRowNum
+		,'$(vL.InitETL_TimeStamp)'			as ETL_Key_ETL_Timestamp
+		,replace('$(pL.Msg)','§',chr(39))		as ETL_TraceMsg					//§ character used to handle single quotes
+		,timestamp#('$(vL.TraceTimeStamp_now)','DD/MM/YYYY hh.mm.ss')			as ETL_TraceTimeStamp
+		,'$(vL.TraceTimeStamp_now_date)'	as ETL_TraceDate
+		,'$(vL.TraceTimeStamp_now_time)'	as ETL_TraceTime
+	AutoGenerate(1);
+	
+End sub
+
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routines for handling the monitoring of the executed process
+   
+   Syntax:
+   Called at the end of the script (Call Sub_MonitoringLog)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_MonitoringLog
+	unqualify "ETL_*";
+	
+	//Store the summary table of stored tables
+	Call Fz_Trace('MONITORING')
+	Call Fz_Trace('Store Monitoring log: $(vL.ETLName)_MonitoringLog.qvd')
+	
+	//Load the table of monitoring previously stored(if any) that is concatenated with the existing for same fields name
+	Let	vL.MonitoringLog		=	Null();
+	For each vL.MonitoringLog in filelist ('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_MonitoringLog.qvd')
+		
+		ETL_MonitoringLog:
+		Load 
+			 *
+		From
+			$(vL.MonitoringLog)
+			(qvd)
+		Where
+			ETL_ExtractionCounter > '$(vL.ExtractionCounter)'-'$(vL.NumOfMonitoringLogStored)';
+	
+	Next	vL.MonitoringLog
+	
+	//Store of the monitoring table
+	if(NoOfRows('ETL_MonitoringLog')>0)	Then
+	
+		Store ETL_MonitoringLog into $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_MonitoringLog.qvd (qvd);	
+	
+		ETL_MonitoringLog_tmp:
+		NoConcatenate
+		Load Distinct
+			Count(Distinct ETL_Key_ETL_Timestamp) 	as Count_ETL_Key_ETL_Timestamp
+		Resident
+			ETL_MonitoringLog;
+		Let vL.NumOflog						=	Peek('Count_ETL_Key_ETL_Timestamp',0,'ETL_MonitoringLog_tmp'); 			//Number of Log files
+
+		Drop Table ETL_MonitoringLog_tmp;
+		
+
+	end if
+	
+End Sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine for handling the log file generated by the ETL (ETL01.log)
+
+   Syntax:
+   Called at the end of the script (Call Sub_ScriptLog)
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Sub_ScriptLog
+	unqualify "ETL_*";
+	
+	//Load the Log
+	Call Fz_Trace('STORE SCRIPTLOG')
+	Call Fz_Trace('Store Script Table log: $(vL.ETLName)_ScriptLog.qvd')
+	
+	Let vL.ScriptLog	=	Null();
+	
+	For each vL.ScriptLog in filelist ('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_ScriptLog.qvd')
+		
+		//Complete log
+		ETL_Script_Log:
+		Load 
+			  ETL_Key_ETL_Timestamp
+			 ,ETL_ScriptLog_RowNo
+			 ,ETL_ScriptCounter
+			 ,ETL_ScriptLog_Timestamp
+			 ,ETL_ScriptLog_ScriptRows
+		From
+			$(vL.ScriptLog)
+			(qvd)
+		Where
+			ETL_ScriptCounter > '$(vL.ScriptCounter)' - '$(vL.NumOfScriptLogStored)';	
+		
+	Next	vL.ScriptLog	
+
+	//Intercepts the last log generated and stores it in QVD
+	Let	vL.ScriptLog_Log	=	Null();
+	For each vL.ScriptLog_Log in filelist ('*' & '$(vL.QvwName)' &'*'& '.log')
+		ETL_LastLog_tmp:
+		first (1) Load
+			TimeStamp(Filetime()) 		as ETL_FileTimeLog
+			,FilePath() 			 	as ETL_FileNameLog
+		From
+			$(vL.ScriptLog_Log)
+			(fix, codepage is 1252);
+		
+	Next	vL.ScriptLog_Log
+	
+	if(NoOfRows('ETL_LastLog_tmp')>0)	Then
+		ETL_LastLog:
+		NoConcatenate load
+			FirstValue(ETL_FileNameLog) as ETL_LastLog
+		Resident ETL_LastLog_tmp
+			group by ''
+			order by ETL_FileTimeLog desc
+		;
+		set vL.LastLog = '';
+		Let	vL.LastLog =	Peek('ETL_LastLog',							0,'ETL_LastLog');
+	end if 
+	
+	if(NoOfRows('ETL_LastLog_tmp')>0)	Then
+		drop table ETL_LastLog_tmp;	
+	end if	
+	if(NoOfRows('ETL_LastLog')>0)	Then
+		drop table ETL_LastLog;	
+	end if	
+		
+	trace $(vL.LastLog);
+	
+	//Load the last Log
+	Let	vL.ScriptLog_Log	=	Null();
+	For each vL.ScriptLog_Log in filelist ('$(vL.LastLog)')
+
+		ETL_Script_Log:
+		Load 
+			'$(vL.InitETL_TimeStamp)'	as ETL_Key_ETL_Timestamp
+			,RowNo()						as ETL_ScriptLog_RowNo
+			,'$(vL.ScriptCounter)'		as ETL_ScriptCounter
+			,@1 							as ETL_ScriptLog_Timestamp 
+			,Trim(@2) 					as ETL_ScriptLog_ScriptRows
+		From
+			$(vL.ScriptLog_Log)
+			(txt, unicode, no labels, delimiter is ':', msq)
+		where not isnull(@1) and trim(@1)<>'';
+		
+	Next	vL.ScriptLog_Log
+	
+	if(NoOfRows('ETL_Script_Log')>0)	Then
+		Store ETL_Script_Log into $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_ScriptLog.qvd (qvd);
+	end if
+
+
+End Sub
+
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine for handling the historical tables storing
+
+   Syntax:
+   Called at the end of the script ('Nome Tabella'))
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+Sub Fz_Store_Historical_Table(pL.table)
+	unqualify "ETL_*";
+
+		//Load and store the log
+		Call Fz_Trace('Store Trace log: ETL_$(pL.table)')
+		
+		Let	vL.Historical_Table	=	Null();
+		
+		For each vL.Historical_Table in filelist ('$(vL.Path_QVD_Log_ETL)$(vL.ETLName)_$(pL.table).qvd')
+			
+			//Load The historical table
+			ETL_$(pL.table):
+			Load 
+				 *
+			From
+				$(vL.Historical_Table)
+				(qvd)
+			Where
+				Exists(ETL_Key_ETL_Timestamp);	
+		
+		Next	vL.Historical_Table	
+				
+		//Table Store
+		If(NoOfRows('ETL_$(pL.table)')>0)	Then
+			Store ETL_$(pL.table) into $(vL.Path_QVD_Log_ETL)$(vL.ETLName)_$(pL.table).qvd (qvd);
+		EndIf
+
+End Sub

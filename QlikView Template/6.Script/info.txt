@@ -1,0 +1,19 @@
+6.Script
+
+	La sottocartella 1.ETL deve contenere tutti i file QVW legati al caricamento dati:
+	
+	- ETL01*.qvw
+
+		I file ETL01*.qvw caricano i file 	5.Config\ETL01*_Settings.xls
+		e salvano i dati nella cartella 	2.QVD\1.DW_Staging
+
+	- Creare un file ETL01.qvw per ogni flusso dati 
+		
+		(Es) ETL01.qvw 		con caricamento giornaliero
+		(Es) ETL01-AS400.qvw 	con caricamento orario
+
+	- ETL02*.qvw
+
+		I file ETL02*.qvw caricano i file da	 	2.QVD\1.DW_Staging
+		Salvano i qvd pronti per il presentation in 	2.QVD\2.DW_Associative
+		Sono legati al file 				5.Config\ETL02_Metadata.xls

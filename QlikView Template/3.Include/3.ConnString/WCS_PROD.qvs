@@ -1,0 +1,3 @@
+﻿///$tab Main
+//Ambiente di produzione WCS7
+ODBC CONNECT TO DBWCPROD (XUserId is fZPcbZZODLLCHbdOXRSA, XPassword is HGESTGVMELaCWWFMSbaKGaJGQJMKTQUL);

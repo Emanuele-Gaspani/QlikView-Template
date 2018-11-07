@@ -1,0 +1,40 @@
+5.Config
+
+Contiene i file excel che determinano i caricamenti del progetto ed i log di audit
+Vengono anche salvati i file *_Period_extracted.qvd con le frammentazioni dei file qvd
+
+	
+- ETL01*_Settings.xls
+
+	Nelle tre schede del file vengono impostate:
+	-Connessioni
+	-Tabelle da caricare (con filtri,tipologia di caricamento,frammentazione del QVD, ecc)
+	-Campi da caricare e relativi alias
+		
+
+- ETL02_Metadata.xls
+
+	Contiene le informazioni logiche sulle tabelle e campi utilizzati nel presentation.
+	Il file non incide sul caricamento ETL02 ma è indispensabile per la documentazione 
+	lato utente e per tenere traccia della trasformazione di campi e tabelle del db 
+	a quelli del presentation	
+
+
+- Expressions.xls
+
+	Serve per utilizzare le variabili al posto delle espressioni nel presentation.
+	Deve contenere tutte le espressioni da utilizzare nel file nella cartella 1.Application 
+
+
+- ETL Audit Log (CARTELLA)
+
+	Contiene tutti i log dei file ETL 01 e 02:
+	- MonitoringLog: 	Informazioni su ciascun QVD salvato
+	- MonitoringLogSintesi: Informazioni sul singolo caricamento
+	- ScriptLog:		Log di ogni riga di script eseguita
+	- TraceLog:		Replica i messaggi visualizzati nel caricamento
+	- DataQualityLog:	Contiene i risultati delle funzioni: (da usare nell'ETL02*.QVW)
+					Fz_CHECK_Duplicate_Values
+					Fz_CHECK_Empty_Values
+					Fz_CHECK_Exists_Values
+	- DataValueLog:	Risultati della funzione Fz_CHECK_Key_Mesure (da usare nell'ETL02*.QVW)

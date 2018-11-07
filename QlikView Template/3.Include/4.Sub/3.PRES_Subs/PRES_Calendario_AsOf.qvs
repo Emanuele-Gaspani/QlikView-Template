@@ -1,0 +1,315 @@
+Sub Calendario
+
+
+//-------------------Versione Calendar 1.1 con Varibili k---------------------------------
+
+
+//				MTD
+//				MTD_EPY
+//				MTD_P1M
+//				MTD_P2M
+//				MTD_P1Y
+//
+//				YTD
+//				YTD_EPY
+//				YTD_P1M
+//				YTD_P2M
+//				YTD_P1Y
+
+
+//*************** Autogenerate **************************
+
+
+	Temp_AM1:
+		load distinct
+		date(date#(AnnoMese_Cal,'YYYYMM'),'YYYYMM')          as AnnoMese_TMP
+		resident Fatti;
+		
+	
+		Temp_AM2:
+		noconcatenate 
+		load Max(AnnoMese_TMP) as AMAX,
+			 Min(AnnoMese_TMP) as AMIN
+		resident Temp_AM1;
+		
+// DA UTILIZZARE PER I TEST SENZA I FATTI		
+//		let AnnoMin_PD = num(2013);
+//		let AnnoMax_PD = num(2014);
+//		let AnnoMeseMax_PD = text('201412');
+
+// COMMENTARE PER I TEST SENZA I FATTI
+		let AnnoMin_PD = num(year(peek('AMIN',0)));
+		let AnnoMax_PD = num(year(peek('AMAX',0)));
+		let AnnoMeseMax_PD = text(date(peek('AMAX',0),'YYYYMM'));
+		
+
+		
+		drop table Temp_AM1;
+		drop table Temp_AM2;
+		
+		For j = $(AnnoMin_PD) to $(AnnoMax_PD)
+		
+			For i = 1 to 12
+				
+				For p =1 to i
+					TempTime:
+					load
+					if($(i)<10, $(j)&'0'&$(i),$(j)&$(i)) as AnnoMese_PD, 
+					if($(p)<10, $(j)&'0'&$(p),$(j)&$(p)) as AnnoMese_TMP,
+					'YTD' 								 as Vista,
+					'ACT'								 as TipoVista,
+					'PROG'								 as Periodo,
+					Year(makedate($(j),$(i) , '1')) 	 as Anno_PD,
+					Month(makedate($(j),$(i) , '1')) 	 as Mese_PD,
+					round(MonthEnd(makedate($(j),$(i)))-MonthStart(makedate($(j),1)))		as K22_TMP,
+					ceil(YearEnd(makedate($(j),1))-YearStart(makedate($(j),1)))				as K23_TMP
+				
+					autogenerate (1);
+					
+					If i=12 then
+					
+						For q=1 to 12
+										
+							load
+							if($(p)<10, $(j)&'0'&$(p),$(j)&$(p)) 		 as AnnoMese_PD, 
+							if($(q)<10, ($(j)-1)&'0'&$(q),($(j)-1)&$(q)) as AnnoMese_TMP,
+							'YTD_EPY' 									 as Vista,
+							'EPY'										 as TipoVista,
+							'PROG'										 as Periodo,
+							Year(makedate($(j),$(p) , '1')) 			 as Anno_PD,
+				     		Month(makedate($(j),$(p) , '1'))			 as Mese_PD,
+				     		ceil(YearEnd(makedate($(j)-1,1))-YearStart(makedate($(j)-1,1)))		as K22_TMP,
+		        			ceil(YearEnd(makedate($(j)-1,1))-YearStart(makedate($(j)-1,1)))		as K23_TMP
+						
+							autogenerate (1);
+				
+						next
+					
+						load
+							if($(p)<10, $(j)&'0'&$(p),$(j)&$(p)) 		 as AnnoMese_PD, 
+							($(j)-1)&'12' 								 as AnnoMese_TMP,
+							'MTD_EPY' 									 as Vista,
+							'EPY'										 as TipoVista,
+							'MENS'										 as Periodo,
+							Year(makedate($(j),$(p) , '1')) 			 as Anno_PD,
+				     		Month(makedate($(j),$(p) , '1')) 			 as Mese_PD,
+				     		day(monthend(makedate($(j)-1,12))) 									as K22_TMP,
+		        			ceil(YearEnd(makedate($(j)-1,1))-YearStart(makedate($(j)-1,1)))		as K23_TMP
+						
+							autogenerate (1);
+							
+					end if
+				next
+				
+				load
+					if($(i)<10, $(j)&'0'&$(i),$(j)&$(i)) 				as AnnoMese_PD, 
+					if($(i)<10, $(j)&'0'&$(i),$(j)&$(i)) 				as AnnoMese_TMP,
+					'MTD' 												as Vista,
+					'ACT'												as TipoVista,
+					'MENS'												as Periodo,
+					Year(makedate($(j),$(i) , '1')) 					as Anno_PD,
+		     		Month(makedate($(j),$(i) , '1')) 					as Mese_PD,
+		        	day(monthend(makedate($(j),$(i)))) 									as K22_TMP,
+		        	ceil(YearEnd(makedate($(j),1))-YearStart(makedate($(j),1)))			as K23_TMP
+		     		
+		     		autogenerate (1);
+		     	
+		    next
+		next
+		
+		concatenate (TempTime)
+		  load 
+		   AnnoMese_TMP,
+		   AnnoMese_PD,
+		   Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+		   Vista,
+		   TipoVista,
+		   Periodo,
+           day(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-1)))									as K22_TMP,
+           ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))-YearStart(date#(AnnoMese_PD,'YYYYMM')))		as K23_TMP
+		  ;
+		  load 
+		   AnnoMese_TMP,
+		   //date(addmonths(date#(AnnoMese_PD,'YYYYMM'),+1),'YYYYMM') as AnnoMese_PD,
+		   If(num(right(AnnoMese_PD,2),'00')<>'12',
+		   left(AnnoMese_PD,4) & num(right(AnnoMese_PD,2)+1,'00'),
+		   left(AnnoMese_PD,4)+1 & '01') 						  as AnnoMese_PD,
+		   'MTD_P1M' 											  as Vista,
+		   'P1M'   												  as TipoVista,
+		   'MENS'   											  as Periodo
+		  ; 
+		  load *
+		  resident TempTime where Vista = 'MTD';
+		
+		
+		concatenate (TempTime)
+			load 
+				AnnoMese_TMP,
+				AnnoMese_PD,
+				Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   		Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+				Vista,
+				TipoVista,
+				Periodo,
+				if(num(right(AnnoMese_PD,2),'00')<>'01',
+           		(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-1))- monthstart(makedate(Year(date#(AnnoMese_PD,'YYYYMM')),1))),	
+           		(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-1))- monthstart(makedate(Year(addmonths(date#(AnnoMese_PD,'YYYYMM'),-1)),1))))		as K22_TMP,
+           		ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))- YearStart(date#(AnnoMese_PD,'YYYYMM')))													as K23_TMP
+			;
+			load 
+				AnnoMese_TMP,
+				If(num(right(AnnoMese_PD,2),'00')<>'12',
+		   		left(AnnoMese_PD,4) & num(right(AnnoMese_PD,2)+1,'00'),
+		   		left(AnnoMese_PD,4)+1 & '01') 						  as AnnoMese_PD,
+				'YTD_P1M' 											  as Vista,
+				'P1M'	  											  as TipoVista,
+				'PROG'	 											  as Periodo	
+			; 
+			load *
+			resident TempTime where Vista = 'YTD';
+		
+		
+		concatenate (TempTime)
+			load 
+				AnnoMese_TMP,
+				AnnoMese_PD,
+				Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   		Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+				Vista,
+				TipoVista,
+				Periodo,
+           		day(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-2)))								as K22_TMP,
+           		ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))-YearStart(date#(AnnoMese_PD,'YYYYMM')))		as K23_TMP
+			;
+			load 
+				AnnoMese_TMP,
+				//date(addmonths(date#(AnnoMese_PD,'YYYYMM'),+2),'YYYYMM') as AnnoMese_PD,
+				If(num(right(AnnoMese_PD,2),'00')<='10',
+		   		left(AnnoMese_PD,4) & num(right(AnnoMese_PD,2)+2,'00'),
+		   		If(num(right(AnnoMese_PD,2),'00')='11',
+		   		left(AnnoMese_PD,4)+1 & '01',left(AnnoMese_PD,4)+1 & '02'))		  as AnnoMese_PD,
+				'MTD_P2M' 											  			  as Vista,
+				'P2M'	  											  			  as TipoVista, 
+				'MENS'	  											  			  as Periodo		
+			;
+			 
+			load *
+			resident TempTime where Vista = 'MTD';
+		
+		concatenate (TempTime)
+			load 
+				AnnoMese_TMP,
+				AnnoMese_PD,
+				Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   		Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+				Vista,
+				TipoVista,
+				Periodo,
+
+				if(num(right(AnnoMese_PD,2),'00')>'02',
+           		(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-2))- monthstart(makedate(Year(date#(AnnoMese_PD,'YYYYMM')),1))),	
+           		(monthend(addmonths(date#(AnnoMese_PD,'YYYYMM'),-2))- monthstart(makedate(Year(addmonths(date#(AnnoMese_PD,'YYYYMM'),-2)),1))))		as K22_TMP,
+           		ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))- YearStart(date#(AnnoMese_PD,'YYYYMM')))													as K23_TMP
+			;
+			load 
+				AnnoMese_TMP,
+				//date(addmonths(date#(AnnoMese_PD,'YYYYMM'),+2),'YYYYMM') as AnnoMese_PD,
+				If(num(right(AnnoMese_PD,2),'00')<='10',
+		   		left(AnnoMese_PD,4) & num(right(AnnoMese_PD,2)+2,'00'),
+		   		If(num(right(AnnoMese_PD,2),'00')='11',
+		   		left(AnnoMese_PD,4)+1 & '01',left(AnnoMese_PD,4)+1 & '02'))		  as AnnoMese_PD,
+				'YTD_P2M' 														  as Vista,
+				'P2M'	  														  as TipoVista,
+				'PROG'	  														  as Periodo	
+			; 
+			
+			load *
+			resident TempTime where Vista = 'YTD';
+	
+	
+		concatenate (TempTime)
+			load 
+				AnnoMese_TMP,
+				AnnoMese_PD,
+				Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   		Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+				Vista,
+				TipoVista,
+				Periodo,
+           		day(monthend(date#(AnnoMese_PD,'YYYYMM'))) 												as K22_TMP,
+           		ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))-YearStart(date#(AnnoMese_PD,'YYYYMM')))		as K23_TMP
+			;
+			load 
+				AnnoMese_TMP,
+				//date(addmonths(date#(AnnoMese_PD,'YYYYMM'),+12),'YYYYMM') as AnnoMese_PD,
+				left(AnnoMese_PD,4)+1 & num(right(AnnoMese_PD,2),'00')as AnnoMese_PD,
+				'MTD_P1Y' 											  as Vista,
+				'P1Y'	  											  as TipoVista, 
+				'MENS'	  											  as Periodo	
+			;
+			
+			load *
+			resident TempTime where Vista = 'MTD';
+	
+		concatenate (TempTime)
+			load 	
+				AnnoMese_TMP,
+				AnnoMese_PD,
+				Year(date#(AnnoMese_PD,'YYYYMM'))  as Anno_PD,
+		   		Month(date#(AnnoMese_PD,'YYYYMM')) as Mese_PD,
+				Vista,
+				TipoVista,
+				Periodo,
+           		(monthend(date#(AnnoMese_PD,'YYYYMM'))- monthstart(makedate(Year(date#(AnnoMese_PD,'YYYYMM')),1)))	as K22_TMP,
+           		ceil(YearEnd(date#(AnnoMese_PD,'YYYYMM'))-YearStart(date#(AnnoMese_PD,'YYYYMM')))					as K23_TMP
+           	;
+			load 
+				AnnoMese_TMP,
+				//date(addmonths(date#(AnnoMese_PD,'YYYYMM'),+12),'YYYYMM') as AnnoMese_PD,
+				left(AnnoMese_PD,4)+1 & num(right(AnnoMese_PD,2),'00')as AnnoMese_PD,
+				'YTD_P1Y' 											  as Vista,
+				'P1Y'	 											  as TipoVista, 
+				'PROG'	 											  as Periodo	
+			; 
+			
+			load *
+			resident TempTime where Vista = 'YTD';
+		
+		
+			
+		Time_PD:
+		noconcatenate Load 		
+			AnnoMese_PD,
+			Vista,
+			TipoVista,
+			Periodo,
+			Anno_PD,
+			Mese_PD, 
+			date(date#(AnnoMese_TMP,'YYYYMM'),'YYYYMM') 			as AnnoMese_Cal,
+			date(date#(AnnoMese_PD,'YYYYMM'),'MMM YYYY') 			as AnnoMese_Cal_MMM,
+			Vista&'.'&date#(AnnoMese_PD, 'YYYYMM')	as PK_Time 
+			resident TempTime 
+		where 
+			date#(AnnoMese_PD, 'YYYYMM') <= date#($(AnnoMeseMax_PD), 'YYYYMM')
+		;
+			
+	
+		Variabili_K:	
+		NoConcatenate 
+		LOAD distinct
+			Vista&'.'&date#(AnnoMese_PD, 'YYYYMM')	as PK_Time, 
+			K22_TMP as K22,
+			K23_TMP as K23
+		Resident
+			TempTime
+		where 
+			date#(AnnoMese_PD, 'YYYYMM') <= date#($(AnnoMeseMax_PD), 'YYYYMM')
+		;
+		
+		drop Field AnnoMese_TMP;
+		
+		drop table TempTime;
+
+
+end sub

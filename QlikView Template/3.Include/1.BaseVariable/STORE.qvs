@@ -1,0 +1,20 @@
+///$tab Main
+
+//Definisco lo STOREENT_ID che indica da quale store prendere i dati
+//	Le variabili sono due: una per i dati del catalogo articoli e una per gli ordini degli store
+
+/*
+10001	MM CAS
+10051	Saturn Sales Catalog
+20000	Mediaworld Sales Catalog
+30001	You And Eni Sales Catalog
+30002	American Express Sales Catalog
+40000	Redcoon IT Sales Catalog
+*/
+
+//Esempio: LET vs_storeent_id = '20000 , 40000';//20=Mediaworld 40=RedCoon
+
+LET vs_storeent_id = '10001 ,20000 ,30001 ,30002';
+
+LET vs_storeent_id_orders = '20000 ,30001 ,30002';
+

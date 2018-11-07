@@ -1,0 +1,13 @@
+///$tab Main
+
+//Definisco la data di inizio caricamento degli ordini web e lo STOREENT_ID
+
+LET DT_INIZIO_CARICAMENTO = TIMESTAMP(DAYNAME(NOW()) - 31 , 'YYYY-MM-DD hh:mm:ss');
+
+
+//Definisco lo STOREENT_ID che indica da quale store prendere i dati (Da utilizzare per RedCoon)
+//	la query è del tipo:
+
+//LET vs_storeent_id = '20000 , 40000';
+//LET vs_storeent_id = 20000;
+

@@ -1,0 +1,15 @@
+2.QVD
+
+	Contiene tutti i file .qvd generati sia dagli ETL01 che dagli ETL02
+	suddivisi come segue:
+
+	- 1.DW_Staging
+
+		Contiene tutti i file di output dell'ETL01
+		Caricamento 1 a 1 dalle tabelle del DB
+
+	- 2.DW_Associative
+
+		Contiene tutti i file di output dell'ETL02
+		Prepara i dati per essere caricati senza filtri dal presentation
+	

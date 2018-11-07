@@ -1,0 +1,12 @@
+///$tab Main
+//Creo una variabile con le tipologie dei prodotti da caricare
+//	Viene usata per filtrare quasi tutte le tabelle dell'ETL01
+
+TipologieProdotto:
+LOAD replace(' '' ' & concat(CodTipoProdotto,' '','' ') & ' '' ' , ' ' ,'') as TipologieXls
+FROM ..\..\8.Import\tipologie.xls
+(biff, embedded labels, table is [categorie wcs7$]);
+
+let TipologieDaCaricare = Peek('TipologieXls', 0, 'TipologieProdotto');
+
+drop Table TipologieProdotto;

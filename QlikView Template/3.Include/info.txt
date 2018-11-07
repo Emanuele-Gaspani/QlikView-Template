@@ -1,0 +1,57 @@
+3.Include
+
+Contiene un sacco di roba divisa in cartelle:
+
+
+1.BaseVariable
+
+	Inserire uno o più file .qvs contenenti l'inizializzazione delle 
+	variabili di script che devono essere visibili da tutti i file .qvw
+
+
+2.Locale
+
+	Contiene un .qvs per ogni nazione che imposta il formato data, ora, ecc.
+	Il file di script deve essere caricato neil file .qvw
+
+
+3.ConnString
+
+	Contiene un .qvs per ogni connessione al database
+	Vengono utilizzati nel file ETL01_Settings.xls
+
+
+4.Sub
+	Contiene tutte le funzioni standard che vengono utilizzate nei file .qvw:
+
+	-1.ETL01_Subs
+		Carica il file ETL01_Settings.xls
+		Si collega ai DB / QVD
+		Crea in automatico la query utilizzando il file excel
+		Gestisce il caricamento full o incrementale
+		Gestisce la suddivisione dei dati per mese e anno
+		Salva i .qvd nella cartella 2.QVD\1.DW_Staging
+
+	-2.ETL02_Subs - Contiene le routine per:
+		Salvare/Eliminare le tabelle
+		Salvare i LOG di script nella cartella 5.Config\ETL Audit Log
+		Gestire il DATA QUALITY nella cartella 5.Config\ETL Audit Log
+		Gestisce il Trace delle informazioni in generale
+		
+	-3.PRES_Subs
+		Funzione per creare un calendario
+		Caricamento del file Expressions.xls
+		Reset delle variabili di script (variabili che iniziano con 'vs_')
+	
+
+5.ColorScheme
+	
+	Contiene un file di script con l'inizializzazione delle variabili colore
+	da utilizzare nel presentation
+
+
+6.Custom
+
+	Contiene gli Script che non rientrano nelle altre casistiche come ad esempio:
+	-DT_AC_DT_AP: Crea le variabili data anno prec. (da mettere in 1.BaseVariable?)
+	-ICONE:	Carica in memoria tutte le icone da utilizzare nel presentation

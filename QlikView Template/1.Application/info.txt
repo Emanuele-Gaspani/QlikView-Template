@@ -1,0 +1,5 @@
+1.Application
+	
+	Contiene il file .qvw visibile dall'utente finale (presentation)
+	Ogni file qvw viene chiamato 'applicazione' ed il file per l'utente 
+	viene sempre chiamato 'Presentation'...non capisco bene la terminologia

@@ -1,0 +1,39 @@
+/*-----------------------------------------------------------------------------------------------------------------------------------------
+   Routine Called on demand in the Presentation script
+
+   Syntax:
+   Called at the beginning of the script after the definition of the Path Config(Call LoadExpression ('Table Name'))
++---------------------------------------------------------------------------------------------------------------------------------------+*/
+ Sub LoadExpression (p_TableName)
+
+ 	
+ 	//Controlla l'esistenza e carica il file di impostazioni specifico per l'ETL in esecuzione
+	if not isnull(filetime('$(vL.Path_Settings)$(p_TableName).xls')) then
+		Expression:
+		Load 
+			[Expression Label]
+			,Expression
+			,Description	
+		From
+			$(vL.Path_Settings)$(p_TableName).xls
+			(biff, embedded labels, table is [Expression$])
+		;
+		
+	end if
+	
+	
+	Let	vs_Nr_var						=	NoOfRows('Expression');
+	Let	vs_i							=	Null();
+	
+	
+	For vs_i = 0 to $(vs_Nr_var)-1
+		
+		Let vs_Label				=			Peek('Expression Label'	, $(vs_i)	, 'Expression');
+		Set vs_Expression					=	Peek('Expression'		, $(vs_i)	, 'Expression');
+		
+		Let '$(vs_Label)'			=	$(vs_Expression);				
+				
+	Next	vs_i
+
+			
+End Sub
